@@ -1,0 +1,3700 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<!-- app.js/learning-content.js는 아래에서 rAF 이후 동적으로 <script> 삽입되어 실행되지만,
+     다운로드 자체는 여기서 미리 시작해두면 두 파일이 순차가 아니라 병렬로 받아져 초기 로딩이 빨라집니다.
+     버전 쿼리(?v=...)는 실제 <script src=...> 값과 반드시 동일하게 유지해야 브라우저가 프리로드를 재사용합니다. -->
+<link rel="preload" as="script" href="app.js?v=20260813-4">
+<link rel="preload" as="script" href="learning-content.js?v=20260813-content-13">
+<script>
+// ===== ?perf=1 전용 임시 진단 모듈 =====
+// 일반 접속 시: 아래 IIFE는 조건검사 1줄만 실행하고 즉시 종료(추가 렌더링·fetch래핑·오버헤드 없음)
+(function(){
+  var PERF_ON = /[?&]perf=1(&|$)/.test(location.search);
+  window.__PERF_ON__ = PERF_ON;
+  if(!PERF_ON){
+    // 일반 모드: mark 호출부가 무해하도록 완전 무동작 함수만 제공(다른 코드는 그대로 mark(...)를 호출해도 안전)
+    window.__perfMark=function(){};
+    window.__perfFetchWrap=function(fn){ return fn; };
+    return;
+  }
+
+  var marks=[]; // {t, name, extra}
+  var fetchLog=[]; // {action, method, start, end, dur, status, ok, concurrentAtStart}
+  var concurrentNow=0, concurrentMax=0;
+  var DUPLICATE_WATCH=['loadContentVisibility','loadHistoryTrainingProgress','loadScore','list','listAccessLog','listStudyTime','listPins'];
+  var lastEndByAction={}; // action -> {end, count}
+
+  window.__perfMark=function(name, extra){
+    marks.push({t:performance.now(), name:name, extra:extra||''});
+    renderPanel();
+  };
+
+  // 민감정보(비밀번호/PIN/토큰/본문/전체쿼리) 절대 기록 안 함 — action 이름과 method/status/시간만 추출
+  function extractAction(urlOrParams, method, body){
+    try{
+      var action=null;
+      if(method==='GET'){
+        var u=new URL(urlOrParams, location.href);
+        action=u.searchParams.get('action');
+      }else if(body){
+        var params = body instanceof URLSearchParams ? body : new URLSearchParams(String(body));
+        action=params.get('action');
+      }
+      return action||'(unknown)';
+    }catch(e){ return '(unknown)'; }
+  }
+
+  window.__perfFetchWrap=function(originalFetch){
+    return function(input, init){
+      var method=(init&&init.method)||'GET';
+      var body=init&&init.body;
+      var action=extractAction(input, method, body);
+      var start=performance.now();
+      concurrentNow++;
+      if(concurrentNow>concurrentMax)concurrentMax=concurrentNow;
+      var concurrentAtStart=concurrentNow;
+
+      var dupNote='';
+      if(DUPLICATE_WATCH.indexOf(action)!==-1){
+        var prev=lastEndByAction[action];
+        if(prev && (start-prev.end)<5000){
+          dupNote='DUPLICATE: '+action+' — 이전 요청 종료 후 '+Math.round(start-prev.end)+'ms 만에 재호출';
+          window.__perfMark(dupNote);
+        }
+      }
+
+      return originalFetch(input, init).then(function(res){
+        var end=performance.now();
+        concurrentNow--;
+        fetchLog.push({action:action, method:method, start:start, end:end, dur:end-start, status:res.status, ok:res.ok, concurrentAtStart:concurrentAtStart});
+        lastEndByAction[action]={end:end};
+        window.__perfMark('fetch완료:'+action, 'status='+res.status+' dur='+Math.round(end-start)+'ms');
+        return res;
+      }).catch(function(err){
+        var end=performance.now();
+        concurrentNow--;
+        fetchLog.push({action:action, method:method, start:start, end:end, dur:end-start, status:0, ok:false, concurrentAtStart:concurrentAtStart});
+        lastEndByAction[action]={end:end};
+        window.__perfMark('fetch실패:'+action, String(err));
+        throw err;
+      });
+    };
+  };
+  window.fetch = window.__perfFetchWrap(window.fetch);
+
+  function buildSummary(){
+    function findDur(actionSubstr){
+      var e=fetchLog.find(function(f){return f.action===actionSubstr;});
+      return e?Math.round(e.dur)+'ms':'(기록없음)';
+    }
+    function markT(name){
+      var m=marks.find(function(x){return x.name===name;});
+      return m?Math.round(m.t):null;
+    }
+    var nameShown=markT('학생이름최초표시');
+    var slowest=fetchLog.slice().sort(function(a,b){return b.dur-a.dur;}).slice(0,5)
+      .map(function(f){return f.action+': '+Math.round(f.dur)+'ms';}).join(', ');
+    var dupList=marks.filter(function(m){return m.name.indexOf('DUPLICATE:')===0;}).map(function(m){return m.name;});
+    return [
+      '=== 측정 결과 요약 ===',
+      '학생 이름 표시까지: '+(nameShown!==null?nameShown+'ms':'(미기록)'),
+      'listPins 왕복시간: '+findDur('listPins'),
+      'verifyPin 왕복시간: '+findDur('verifyPin'),
+      'adminLogin 왕복시간: '+findDur('adminLogin'),
+      'verifyAdminPasswordOnly 왕복시간: '+findDur('verifyAdminPasswordOnly'),
+      '가장 느린 API 5개: '+(slowest||'(기록없음)'),
+      '중복 API 목록: '+(dupList.length?dupList.join(' | '):'(없음)'),
+      '최대 동시 요청 수: '+concurrentMax
+    ].join('\n');
+  }
+
+  function buildFullText(){
+    var lines=['=== 진단 기록(', new Date().toISOString(), ') ==='];
+    marks.forEach(function(m){
+      lines.push('['+Math.round(m.t)+'ms] '+m.name+(m.extra?' ('+m.extra+')':''));
+    });
+    lines.push('');
+    lines.push('=== fetch 기록 ===');
+    fetchLog.forEach(function(f){
+      lines.push(f.method+' '+f.action+' | '+Math.round(f.dur)+'ms | status='+f.status+' | ok='+f.ok+' | 동시요청='+f.concurrentAtStart);
+    });
+    lines.push('');
+    lines.push(buildSummary());
+    return lines.join('\n');
+  }
+
+  var panelCollapsed=true; // 기본 접힘 — 화면 버튼을 가리지 않도록(펼치기 버튼으로만 확장)
+  function renderPanel(){
+    var panel=document.getElementById('__perf_panel__');
+    if(!panel)return; // DOM 준비 전이면 다음 mark에서 다시 시도됨(패널 생성 후 재호출 필요없이 자연스럽게 채워짐)
+    var body=document.getElementById('__perf_panel_body__');
+    if(body && !panelCollapsed){
+      body.textContent=marks.slice(-8).map(function(m){return '['+Math.round(m.t)+'ms] '+m.name;}).join('\n');
+    }
+  }
+
+  function createPanel(){
+    var panel=document.createElement('div');
+    panel.id='__perf_panel__';
+    panel.style.cssText='position:fixed;left:0;right:0;bottom:0;z-index:999999;background:rgba(20,20,20,0.94);color:#eee;font:11px/1.4 monospace;padding:6px 8px;max-height:38vh;display:flex;flex-direction:column;box-shadow:0 -2px 10px rgba(0,0,0,0.4)';
+    panel.innerHTML=
+      '<div style="display:flex;gap:6px;align-items:center;margin-bottom:4px;flex-wrap:wrap">'+
+      '<b style="color:#ffb84d">⚡ 진단모드</b>'+
+      '<button id="__perf_copy__" style="padding:3px 8px;font-size:11px">측정 결과 복사</button>'+
+      '<button id="__perf_reset__" style="padding:3px 8px;font-size:11px">측정 초기화</button>'+
+      '<button id="__perf_toggle__" style="padding:3px 8px;font-size:11px">펼치기</button>'+
+      '</div>'+
+      '<pre id="__perf_panel_body__" style="margin:0;overflow-y:auto;white-space:pre-wrap;flex:1;display:none"></pre>';
+    panel.style.maxHeight='auto'; // 접힘 기본상태 — 버튼 한 줄만 차지, 화면 버튼을 안 가림
+    document.body.appendChild(panel);
+    document.getElementById('__perf_copy__').onclick=function(){
+      var text=buildFullText();
+      if(navigator.clipboard&&navigator.clipboard.writeText){
+        navigator.clipboard.writeText(text).catch(function(){ window.prompt('복사(Ctrl+C):', text); });
+      }else{
+        window.prompt('복사(Ctrl+C):', text);
+      }
+    };
+    document.getElementById('__perf_reset__').onclick=function(){
+      marks=[]; fetchLog=[]; concurrentNow=0; concurrentMax=0; lastEndByAction={};
+      renderPanel();
+    };
+    document.getElementById('__perf_toggle__').onclick=function(){
+      panelCollapsed=!panelCollapsed;
+      var body=document.getElementById('__perf_panel_body__');
+      body.style.display=panelCollapsed?'none':'block';
+      panel.style.maxHeight=panelCollapsed?'auto':'38vh';
+      document.getElementById('__perf_toggle__').textContent=panelCollapsed?'펼치기':'접기';
+      if(!panelCollapsed) renderPanel();
+    };
+    renderPanel();
+  }
+
+  window.__perfMark('index시작');
+  if(document.readyState==='loading'){
+    document.addEventListener('DOMContentLoaded', function(){
+      window.__perfMark('DOMContentLoaded');
+    });
+  }
+  document.addEventListener('DOMContentLoaded', function ensureBody(){
+    if(document.body) createPanel();
+    else window.addEventListener('load', createPanel, {once:true});
+  }, {once:true});
+})();
+</script>
+
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>공부하자앱</title>
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#2C2A26">
+<!-- iOS 홈화면 추가 지원 -->
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="공부하자앱">
+<link rel="apple-touch-icon" href="icon-192.png">
+<link rel="icon" href="icon-192.png">
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Gaegu:wght@300;400;700&family=Noto+Sans+KR:wght@400;500;700;900&family=Gowun+Dodum&family=Nanum+Myeongjo:wght@400;700;800&display=swap');
+  @import url('https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.css');
+  *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+  :root{--stone:#F4F7FC;--rock:#FFFFFF;--sand:#7C8698;--clay:#A9B2C3;--ember:#3D7BF5;--ash:#1C2536;--correct:#34C77B;--wrong:#F0555C}
+  body{font-family:var(--app-font,'Noto Sans KR'),sans-serif;background:var(--stone);min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px;background-image:radial-gradient(ellipse at 20% 0%,rgba(61,123,245,0.08) 0%,transparent 60%),radial-gradient(ellipse at 80% 100%,rgba(61,123,245,0.05) 0%,transparent 50%)}
+  .container{width:100%;max-width:680px}
+  #test-mode-banner{position:sticky;top:0;z-index:50;background:#5A7AA5;color:white;text-align:center;padding:8px;font-size:12px;font-weight:700;border-radius:0 0 10px 10px;margin-bottom:10px;cursor:pointer}
+  #font-picker-btn{position:fixed;top:12px;right:12px;z-index:60;background:rgba(0,0,0,0.35);color:var(--ash);border:1px solid rgba(150,148,180,0.3);border-radius:20px;padding:6px 12px;font-size:11px;font-weight:700;cursor:pointer;backdrop-filter:blur(4px)}
+  #font-picker-btn:hover{background:rgba(0,0,0,0.5)}
+  #sound-toggle-btn{position:fixed;top:12px;right:82px;z-index:60;background:rgba(0,0,0,0.35);color:var(--ash);border:1px solid rgba(150,148,180,0.3);border-radius:20px;padding:6px 10px;font-size:11px;font-weight:700;cursor:pointer;backdrop-filter:blur(4px)}
+  #sound-toggle-btn:hover{background:rgba(0,0,0,0.5)}
+  .font-opt-list{display:flex;flex-direction:column;gap:8px;margin:14px 0}
+  .font-opt-item{background:rgba(61,123,245,0.05);border:1.5px solid rgba(150,148,180,0.18);border-radius:10px;padding:14px;font-size:16px;font-weight:700;color:var(--ash);cursor:pointer;transition:all 0.15s}
+  .font-opt-item:hover{border-color:var(--sand);background:rgba(150,148,180,0.1)}
+  .font-opt-item.chosen{border-color:var(--ember);background:rgba(212,98,42,0.14)}
+  .era-icon{font-size:60px;display:block;margin-bottom:12px;filter:drop-shadow(0 4px 16px rgba(212,98,42,0.4))}
+  .title-label{color:var(--clay);font-size:12px;font-weight:700;letter-spacing:4px;margin-bottom:10px}
+  #selected-name-banner{display:flex;flex-direction:column;align-items:stretch;gap:0;margin-bottom:18px;background:#FFFFFF;box-shadow:0 4px 18px rgba(61,123,245,0.12);border-radius:20px;padding:18px}
+  .home-summary-top{display:flex;align-items:center;gap:10px;margin-bottom:12px}
+  .home-summary-name-wrap{display:flex;flex-direction:column;min-width:0}
+  .home-last-access{color:var(--sand);font-size:11px;margin-top:2px}
+  .home-progress-row{display:flex;align-items:center;gap:8px;margin-bottom:10px}
+  .home-progress-bar{flex:1;height:10px;background:rgba(61,123,245,0.10);border-radius:6px;overflow:hidden}
+  .home-progress-fill{height:100%;background:linear-gradient(90deg,var(--ember),#6FA1FF);border-radius:6px}
+  .home-progress-pct{color:var(--ember);font-size:15px;font-weight:900;flex-shrink:0}
+  .home-incomplete-count{color:var(--sand);font-size:12px;font-weight:700;margin-bottom:10px}
+  .home-resume-row{display:flex;align-items:center;justify-content:space-between;background:rgba(61,123,245,0.06);border-radius:14px;padding:12px 14px;cursor:pointer;margin-bottom:10px}
+  .home-resume-label{color:var(--ash);font-size:13px;font-weight:700}
+  .home-resume-arrow{color:var(--ember);font-size:18px;font-weight:700}
+  .home-recent-list{display:flex;flex-direction:column;gap:6px;margin-bottom:10px}
+  .home-recent-item{display:flex;justify-content:space-between;font-size:11.5px;color:var(--sand)}
+  .home-recent-time{color:var(--clay)}
+  .home-studytime{font-size:12px;color:var(--ember);font-weight:700;margin:6px 0}
+  .home-studytime-block{margin:8px 0;display:flex;flex-direction:column;gap:2px}
+  .home-studytime-row{font-size:12px;color:var(--ember);font-weight:700}
+  .home-bible-verse{text-align:center;font-size:13.5px;color:var(--sand);font-style:italic;line-height:1.5;margin-top:4px;padding:0 4px}
+  .home-bible-ref{font-style:normal;font-weight:700;opacity:.8}
+
+.home-summary-actions{margin-left:auto;display:flex;align-items:center;gap:10px}
+.home-mail-btn{position:relative;cursor:pointer;font-size:20px;transition:transform .15s}
+.home-mail-btn:hover{transform:scale(1.1)}
+.home-mail-badge{position:absolute;top:-5px;right:-8px;min-width:16px;height:16px;padding:0 4px;border-radius:10px;background:#F0555C;color:#fff;font-size:10px;font-weight:800;display:flex;align-items:center;justify-content:center}
+  #selected-name-banner .sel-name-avatar{flex-shrink:0}
+  #selected-name-banner .sel-name-text{color:var(--ash);font-size:13px;font-weight:900}
+  #selected-name-banner .sel-name-done{color:#7ecb94;font-size:11px;font-weight:700}
+  h1{color:var(--ash);font-size:clamp(22px,5vw,34px);font-weight:900;line-height:1.2;margin-bottom:8px}
+  .subtitle{color:var(--sand);font-size:14px;margin-bottom:24px;line-height:1.6}
+  .refresh-icon-btn{cursor:pointer;font-size:14px;padding:2px 4px;border-radius:6px;transition:all 0.15s}
+  .refresh-icon-btn:hover{background:rgba(61,123,245,0.08)}
+  .refresh-btn:hover{background:rgba(150,148,180,0.1);color:var(--ash)}
+  .start-btn{display:inline-block;background:var(--ember);color:white;border:none;border-radius:16px;padding:16px 44px;font-size:16px;font-weight:700;font-family:inherit;cursor:pointer;transition:all 0.2s;box-shadow:0 4px 14px rgba(61,123,245,0.28)}
+  .start-btn:hover{background:#2F63D6;transform:translateY(-2px)}
+  /* 학생 선택 */
+  #start-screen{text-align:center;animation:fadeIn 0.5s ease}
+  .student-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:22px}
+  .student-grid{display:flex;flex-direction:column;gap:14px;margin-bottom:22px}
+  .student-card{
+    min-height:142px;
+    padding:14px 16px;
+    border-radius:22px;
+display:flex;align-items:center;gap:14px;background:#FFFFFF;box-shadow:0 4px 18px rgba(61,123,245,0.12);border:none;cursor:pointer;transition:all 0.2s;text-align:left
+}
+  .student-card:hover{transform:translateY(-2px);box-shadow:0 6px 22px rgba(61,123,245,0.18)}
+  .student-card.selected{border:none;background:linear-gradient(135deg,rgba(61,123,245,0.12),rgba(61,123,245,0.04));position:relative}
+  .selected-checkmark{display:none;position:absolute;inset:0;border-radius:20px;background:rgba(61,123,245,0.55);align-items:center;justify-content:center;color:white;font-size:44px;font-weight:900;z-index:1;pointer-events:none}
+  .student-card.selected .selected-checkmark{display:flex}
+  .student-avatar{
+    width:72px;
+    height:72px;
+    font-size:48px;
+    margin:0 auto 12px;
+border-radius:50%;background:linear-gradient(135deg,rgba(61,123,245,0.14),rgba(61,123,245,0.06));display:flex;align-items:center;justify-content:center;flex-shrink:0
+}
+  .student-row-info{flex:1;min-width:0}
+  .student-card-arrow{color:var(--clay);font-size:22px;font-weight:700;flex-shrink:0}
+  .student-card{position:relative}
+  .settings-btn{position:absolute;top:10px;right:10px;font-size:18px;width:26px;height:26px;border-radius:50%;background:transparent;display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:2;line-height:6px}
+  .settings-btn:hover{background:rgba(28,37,54,0.12)}
+  .access-complete-badge{position:absolute;top:10px;right:42px;font-size:9px;font-weight:800;background:rgba(255,183,3,0.18);color:#C98A00;border:none;border-radius:20px;padding:3px 8px;z-index:2}
+  .settings-menu-list{display:flex;flex-direction:column;gap:8px;margin:14px 0}
+  .settings-menu-item{background:rgba(61,123,245,0.05);border:1.5px solid rgba(150,148,180,0.18);border-radius:10px;padding:12px;font-size:14px;font-weight:600;color:var(--ash);cursor:pointer;transition:all 0.15s}
+  .settings-menu-item:hover{border-color:var(--sand);background:rgba(150,148,180,0.1)}
+  .student-mood{color:var(--sand);font-size:11px;margin-top:2px;font-weight:600}
+  .student-progress-row{display:flex;align-items:center;gap:8px;margin-top:8px}
+  .student-progress-bar{flex:1;height:8px;background:rgba(61,123,245,0.10);border-radius:6px;overflow:hidden}
+  .student-progress-fill{height:100%;background:linear-gradient(90deg,var(--ember),#6FA1FF);border-radius:6px}
+  .student-progress-fill.warning{background:var(--wrong)}
+  .student-progress-pct{color:var(--ember);font-size:13px;font-weight:800;flex-shrink:0}
+  .student-progress-pct.warning{color:var(--wrong)}
+  .student-last-access{color:var(--sand);font-size:11px;margin-top:6px}
+  .student-study-total{color:var(--ember);font-size:11px;font-weight:800;margin-top:6px}
+  .mood-picker-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin:14px 0;max-height:50vh;overflow-y:auto}
+  .mood-opt{font-size:13px;background:rgba(61,123,245,0.05);border:1.5px solid rgba(150,148,180,0.18);border-radius:10px;padding:9px 6px;cursor:pointer;transition:all 0.15s;color:var(--ash);text-align:center}
+  .mood-opt:hover{border-color:var(--sand);background:rgba(150,148,180,0.1)}
+  .mood-opt.chosen{border-color:var(--ember);background:rgba(212,98,42,0.15)}
+
+  .avatar-box{max-width:340px}
+  .avatar-scroll{max-height:44vh;overflow-y:auto;padding-right:2px}
+  .avatar-preview{width:90px;height:96px;margin:6px auto 14px;background:rgba(61,123,245,0.05);border-radius:20px;display:flex;align-items:center;justify-content:center;border:2px solid rgba(150,148,180,0.2)}
+  .avatar-cat-label{color:var(--clay);font-size:11px;font-weight:700;text-align:left;margin:10px 0 6px}
+  .avatar-swatch-row{display:flex;gap:8px;overflow-x:auto;padding-bottom:2px}
+  .avatar-swatch{flex-shrink:0;width:38px;height:38px;border-radius:50%;cursor:pointer;border:2px solid transparent;display:flex;align-items:center;justify-content:center;transition:all 0.15s}
+  .avatar-swatch.chosen{border-color:var(--ember);transform:scale(1.1)}
+  .avatar-swatch.style-swatch{background:rgba(61,123,245,0.06);border-radius:10px;width:48px;font-size:10px;color:var(--sand);border:1.5px solid rgba(150,148,180,0.18)}
+  .avatar-swatch.style-swatch.chosen{border-color:var(--ember);color:var(--ash);background:rgba(212,98,42,0.12)}
+  .avatar-swatch.expr-swatch{background:rgba(61,123,245,0.06);border-radius:10px;width:44px;font-size:18px;border:1.5px solid rgba(150,148,180,0.18)}
+  .avatar-swatch.expr-swatch.chosen{border-color:var(--ember);background:rgba(212,98,42,0.12)}
+  .avatar-swatch.acc-swatch{background:rgba(61,123,245,0.06);border-radius:10px;width:48px;font-size:10px;color:var(--sand);border:1.5px solid rgba(150,148,180,0.18)}
+  .avatar-swatch.acc-swatch.chosen{border-color:var(--ember);color:var(--ash);background:rgba(212,98,42,0.12)}
+  .student-name{color:var(--ash);font-size:17px;font-weight:800}
+  .student-card.has-note{background:rgba(240,85,92,0.05)}
+  .student-note{color:#e87474;font-size:10px;margin-top:5px;line-height:1.4;word-break:keep-all}
+  .student-date{font-size:10px;margin-top:6px;font-weight:600;line-height:1.4}
+  .student-date.done{color:#7ecb94}
+  .student-date.partial{color:#D4A62A}
+  .student-date.none{color:var(--sand)}
+  .teacher-btn{margin-top:14px;background:transparent;border:none;color:var(--clay);font-size:12px;font-family:inherit;cursor:pointer;text-decoration:underline;display:block;text-align:center;width:100%}
+  .menu-tile-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:16px}
+  .menu-tile{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;background:#FFFFFF;border:none;border-radius:16px;padding:18px 10px;box-shadow:0 2px 12px rgba(61,123,245,0.10);cursor:pointer;font-family:inherit}
+  .menu-tile:hover{transform:translateY(-1px);box-shadow:0 4px 16px rgba(61,123,245,0.16)}
+  .menu-tile-icon{font-size:22px}
+  .menu-tile-label{font-size:13px;font-weight:700;color:var(--ash)}
+  .teacher-stat-summary{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:14px 0}
+  .teacher-stat-card{background:#FFFFFF;border-radius:14px;padding:14px;text-align:center;box-shadow:0 2px 10px rgba(61,123,245,0.08)}
+  .teacher-stat-card.warn .teacher-stat-num{color:var(--wrong)}
+  .teacher-stat-num{font-size:20px;font-weight:900;color:var(--ember)}
+  .teacher-stat-label{font-size:11px;color:var(--sand);margin-top:4px}
+  /* 학습 요약 노트 화면 */
+  #summary-screen{display:none;animation:fadeIn 0.5s ease;text-align:left}
+  .summary-header{text-align:center;margin-bottom:22px}
+  .summary-header h2{color:var(--ash);font-size:20px;font-weight:900;margin-bottom:6px}
+  .summary-header p{color:var(--sand);font-size:13px}
+  .summary-section{background:rgba(61,123,245,0.03);border:1.5px solid rgba(150,148,180,0.12);border-radius:14px;padding:18px;margin-bottom:14px}
+  #qbank-screen{display:none;animation:fadeIn 0.5s ease;text-align:left}
+  .qbank-unit{background:rgba(61,123,245,0.03);border:1.5px solid rgba(150,148,180,0.12);border-radius:14px;margin-bottom:10px;overflow:hidden}
+  .qbank-unit-header{padding:14px 16px;cursor:pointer;display:flex;justify-content:space-between;align-items:center;color:var(--ash);font-weight:700;font-size:14px;user-select:none}
+  .qbank-unit-header:hover{background:rgba(150,148,180,0.05)}
+  .qbank-unit-header .qb-count{color:var(--sand);font-size:11px;font-weight:600}
+  .qbank-unit-body{display:none;padding:0 16px 14px}
+  .qbank-unit-body.open{display:block}
+  .qbank-q{background:rgba(61,123,245,0.03);border-radius:10px;padding:12px;margin-bottom:8px;font-size:12px;line-height:1.6}
+  .qbank-q .qb-num{color:var(--clay);font-weight:700;margin-right:4px}
+  .qbank-q .qb-type{display:inline-block;background:rgba(160,120,90,0.15);color:var(--clay);border-radius:6px;padding:1px 7px;font-size:10px;font-weight:700;margin-left:6px}
+  .qbank-q .qb-question{color:var(--ash);font-weight:600;margin:6px 0}
+  .qbank-q .qb-options{color:var(--sand);margin:4px 0}
+  .qbank-q .qb-answer{color:#7ecb94;font-weight:700;margin-top:4px}
+  .qbank-q .qb-explain{color:var(--sand);font-style:italic;margin-top:4px;font-size:11px}
+  .summary-title{color:var(--ember);font-size:15px;font-weight:800;margin-bottom:10px}
+  .summary-text{color:var(--sand);font-size:13px;line-height:1.7;margin-bottom:10px}
+  .summary-text b{color:var(--ash)}
+  .summary-table{display:flex;flex-direction:column;gap:6px;margin-bottom:10px}
+  .summary-row{display:flex;gap:10px;font-size:13px;color:var(--sand);background:rgba(61,123,245,0.03);border-radius:8px;padding:8px 12px}
+  .summary-label{color:var(--ash);font-weight:700;min-width:64px;flex-shrink:0}
+  .summary-img{width:100%;max-height:180px;object-fit:contain;border-radius:10px;background:rgba(0,0,0,0.2);margin:8px 0 4px}
+  .summary-caption{color:var(--clay);font-size:11px;font-style:italic;text-align:center;margin-bottom:4px}
+  .level-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:20px}
+  .level-card{background:#FFFFFF;box-shadow:0 2px 12px rgba(61,123,245,0.10);border:1.5px solid rgba(150,148,180,0.2);border-radius:12px;padding:16px 12px;cursor:pointer;transition:all 0.2s;text-align:left}
+  .level-card:hover,.level-card.active{border-color:var(--ember);background:rgba(212,98,42,0.1)}
+  .level-card.done{border-color:var(--correct)}
+  .level-card.done .level-name::after{content:' ✅';font-size:12px}
+  .level-card.done.active{border-color:var(--ember)}
+  .level-name{color:var(--ash);font-weight:700;font-size:14px;margin-bottom:3px}
+  .level-desc{color:var(--sand);font-size:11px}
+  /* 비밀번호 모달 */
+  .pw-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.6);display:none;align-items:center;justify-content:center;z-index:1000;padding:20px}
+  .pw-overlay.show{display:flex}
+  .pw-box{background:var(--stone);border:1.5px solid rgba(150,148,180,0.25);border-radius:16px;padding:28px 24px;max-width:320px;width:100%;text-align:center}
+  .popup-close-x{position:absolute;top:12px;right:14px;color:var(--sand);font-size:18px;cursor:pointer;width:28px;height:28px;display:flex;align-items:center;justify-content:center;border-radius:50%;transition:all 0.15s}
+  .popup-close-x:hover{background:rgba(61,123,245,0.08);color:var(--ash)}
+  .pw-box h3{color:var(--ash);font-size:16px;font-weight:700;margin-bottom:14px}
+  .pw-input{width:100%;background:rgba(61,123,245,0.06);border:1.5px solid rgba(150,148,180,0.25);border-radius:10px;padding:12px 14px;color:var(--ash);font-size:18px;text-align:center;letter-spacing:4px;font-family:inherit;outline:none;margin-bottom:12px}
+  .pw-input:focus{border-color:var(--ember)}
+  .pw-error{color:#e87474;font-size:12px;margin-bottom:10px;min-height:16px}
+  .pw-btns{display:flex;gap:8px}
+  .pw-btn{flex:1;border:none;border-radius:10px;padding:11px;font-size:14px;font-weight:700;font-family:inherit;cursor:pointer}
+  .pw-confirm{background:var(--ember);color:white}
+  .pw-cancel{background:rgba(61,123,245,0.06);color:var(--ash);border:1.5px solid rgba(150,148,180,0.2)!important}
+  /* 선생님 확인 */
+  #teacher-screen{display:none;animation:fadeIn 0.5s ease}
+  #parent-screen{display:none;animation:fadeIn 0.5s ease}
+  .teacher-header{text-align:center;margin-bottom:22px}
+  .teacher-header h2{color:var(--ash);font-size:20px;font-weight:900;margin-bottom:6px}
+  .teacher-header p{color:var(--sand);font-size:13px}
+  .student-result-grid{display:grid;gap:10px;margin-bottom:20px}
+  .src-card{background:#FFFFFF;box-shadow:0 2px 12px rgba(61,123,245,0.10);border:1.5px solid rgba(150,148,180,0.12);border-radius:14px;padding:16px 18px}
+  .src-header{display:flex;align-items:center;gap:10px;margin-bottom:8px}
+  .src-avatar{font-size:26px}
+  .src-name{color:var(--ash);font-size:15px;font-weight:700;flex:1}
+  .src-badge{font-size:11px;font-weight:700;padding:3px 10px;border-radius:20px}
+  .badge-done{background:rgba(74,124,89,0.25);color:#7ecb94}
+  .badge-none{background:rgba(185,64,64,0.2);color:#e87474}
+  .src-detail{color:var(--sand);font-size:13px;line-height:1.8}
+  .date-reset-row{display:flex;gap:6px;margin-bottom:10px}
+  .date-reset-input{flex:1;background:rgba(61,123,245,0.05);border:1.5px solid rgba(150,148,180,0.2);border-radius:8px;padding:9px 10px;color:var(--ash);font-size:12px;font-family:inherit}
+  .date-reset-btn{flex-shrink:0;background:rgba(185,64,64,0.12);border:1.5px solid rgba(185,64,64,0.28);border-radius:8px;padding:9px 12px;color:#e87474;font-size:11px;font-weight:700;font-family:inherit;cursor:pointer;white-space:nowrap}
+  .date-reset-btn:hover{background:rgba(185,64,64,0.2)}
+  .unit-group-header{color:var(--clay);font-size:12px;font-weight:700;margin:10px 0 6px;padding-left:2px}
+  .src-access{color:var(--clay);font-size:11px;margin-bottom:8px;padding-left:2px}
+  .src-progress{margin-bottom:8px;padding:0 2px}
+  .src-progress.warning{background:rgba(185,64,64,0.14);border:1.5px solid rgba(185,64,64,0.35);border-radius:10px;padding:8px 10px;margin-bottom:8px}
+  .src-progress.warning .src-progress-label{color:#e87474}
+  .src-progress-warning-text{color:#e87474;font-size:11px;font-weight:700;margin-top:6px}
+  .src-progress-label{color:var(--sand);font-size:11px;font-weight:700;margin-bottom:4px}
+  .src-progress-bar{background:rgba(61,123,245,0.06);border-radius:6px;height:7px;overflow:hidden}
+  .src-progress-fill{background:linear-gradient(90deg,var(--ember),#7ecb94);height:100%;border-radius:6px;transition:width 0.4s}
+  .src-progress.warning .src-progress-fill{background:#e87474}
+  .src-progress-sub{margin-top:8px}
+  .src-progress-sub span{color:var(--sand);font-size:10px;font-weight:700;display:block;margin-bottom:3px}
+  .src-progress-sub.warning span{color:#e87474}
+  .src-progress-bar.small{height:5px}
+  .note-edit-row{display:flex;gap:6px;margin-bottom:10px}
+  .note-input{flex:1;background:rgba(61,123,245,0.05);border:1.5px solid rgba(150,148,180,0.2);border-radius:8px;padding:8px 10px;color:var(--ash);font-size:12px;font-family:inherit}
+  .note-input::placeholder{color:var(--sand);opacity:0.6}
+  .note-save-btn{background:rgba(212,98,42,0.15);border:1.5px solid rgba(212,98,42,0.3);border-radius:8px;padding:8px 12px;color:var(--ember);font-size:12px;font-weight:700;font-family:inherit;cursor:pointer}
+  .note-save-btn:hover{background:rgba(212,98,42,0.25)}
+  .student-reset-btn{width:100%;margin-top:10px;background:rgba(185,64,64,0.1);border:1px solid rgba(185,64,64,0.25);border-radius:8px;padding:8px;color:#e87474;font-size:11px;font-weight:600;font-family:inherit;cursor:pointer;transition:all 0.2s}
+  .student-reset-btn:hover{background:rgba(185,64,64,0.18)}
+  .src-detail span{color:var(--ash);font-weight:600}
+  .attempts-list{display:flex;flex-direction:column;gap:6px;margin-top:4px}
+  .attempts-toggle{display:flex;justify-content:space-between;align-items:center;background:#FFFFFF;box-shadow:0 2px 12px rgba(61,123,245,0.10);border:1px solid rgba(150,148,180,0.15);border-radius:8px;padding:8px 12px;font-size:12px;font-weight:700;color:var(--sand);cursor:pointer;user-select:none;margin-bottom:6px}
+  .attempts-toggle:hover{color:var(--ash);border-color:rgba(150,148,180,0.3)}
+  .attempt-row{display:flex;align-items:center;gap:8px;background:rgba(61,123,245,0.03);border-radius:8px;padding:8px 10px;font-size:12px}
+  .attempt-idx{color:var(--clay);font-weight:700;min-width:26px}
+  .attempt-level{color:var(--ash);font-weight:600;background:rgba(150,148,180,0.12);border-radius:10px;padding:2px 8px;font-size:11px}
+  .attempt-score{color:var(--ember);font-weight:700;min-width:40px}
+  .attempt-detail{color:var(--sand);flex:1;text-align:right}
+  .attempt-block{margin-bottom:6px}
+  .attempt-block.pass-cell{background:linear-gradient(135deg,rgba(74,124,89,0.22),rgba(126,203,148,0.12));border:2px solid #7ecb94;border-radius:12px;padding:14px 10px;text-align:center;margin-bottom:8px}
+  .pass-cell-big{font-size:26px;font-weight:900;color:#7ecb94;letter-spacing:2px}
+  .pass-cell-sub{color:var(--sand);font-size:11px;margin-top:4px}
+  .pass-cell.pass-cell-small{padding:9px 10px;text-align:left}
+  .pass-cell-date{color:#7ecb94;font-size:12px;font-weight:700}
+  .attempt-toggle-row{display:flex;gap:12px;padding:2px 10px}
+  .attempt-wrong-toggle{color:var(--clay);font-size:11px;font-weight:600;cursor:pointer;user-select:none}
+  .attempt-wrong-toggle:hover{color:var(--ember)}
+  .attempt-wrong-detail{background:rgba(185,64,64,0.08);border:1px solid rgba(185,64,64,0.18);border-radius:8px;padding:8px 10px;margin:2px 10px 4px;color:var(--sand);font-size:11px;line-height:1.7}
+  .teacher-back{width:100%;background:rgba(61,123,245,0.06);border:1.5px solid rgba(150,148,180,0.2);border-radius:10px;padding:13px;color:var(--ash);font-size:15px;font-weight:700;font-family:inherit;cursor:pointer}
+  /* 퀴즈 화면 */
+  #quiz-screen{display:none;animation:fadeIn 0.4s ease}
+  .quiz-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px}
+  .q-counter{color:var(--sand);font-size:13px;font-weight:500}
+  .q-counter span{color:var(--ash);font-weight:700;font-size:15px}
+  .score-badge{background:rgba(212,98,42,0.15);border:1px solid rgba(212,98,42,0.4);color:var(--ember);border-radius:20px;padding:4px 12px;font-size:13px;font-weight:700}
+  .progress-bar{width:100%;height:10px;background:rgba(61,123,245,0.08);border-radius:6px;margin-bottom:18px;overflow:hidden}
+  .progress-fill{height:100%;background:linear-gradient(90deg,var(--ember),#6FA1FF);border-radius:6px;transition:width 0.4s ease}
+  .q-type-tag{display:inline-block;background:rgba(160,120,90,0.15);color:var(--clay);border-radius:6px;padding:3px 10px;font-size:11px;font-weight:700;letter-spacing:1px;margin-bottom:12px}
+  .question-card{background:#FFFFFF;box-shadow:0 4px 18px rgba(61,123,245,0.12);border:none;border-radius:20px;padding:22px;margin-bottom:16px}
+  .question-card.memory-card-mode{background:linear-gradient(145deg,#f5f9ff,#eef4ff);box-shadow:0 5px 20px rgba(52,155,254,0.18);border:1.5px solid rgba(52,155,254,0.22)}
+  .question-text{color:var(--ash);font-size:clamp(15px,3.5vw,18px);font-weight:700;line-height:1.55}
+  .question-hint{color:var(--sand);font-size:12px;margin-top:8px;line-height:1.5;font-style:italic}
+  .memory-card-action{width:100%;background:linear-gradient(135deg,#349BFE,#5378F5);border:none;border-radius:16px;padding:16px;color:white;font-size:15px;font-weight:800;font-family:inherit;cursor:pointer;box-shadow:0 4px 14px rgba(52,155,254,0.26)}
+  .memory-card-action:hover{transform:translateY(-1px);box-shadow:0 6px 18px rgba(52,155,254,0.32)}
+  .memory-card-action:disabled{opacity:.48;cursor:not-allowed;transform:none;box-shadow:none}
+  .memory-check-grid .option-btn{border:1.5px solid rgba(52,155,254,0.18)}
+  .memory-card-review-btn{width:100%;margin-top:2px;background:transparent;border:1.5px solid rgba(52,155,254,0.28);border-radius:14px;padding:12px;color:#3979c9;font-size:13px;font-weight:800;font-family:inherit;cursor:pointer}
+  .artifact-img{width:100%;max-height:190px;object-fit:contain;border-radius:10px;margin-top:12px;background:rgba(0,0,0,0.2)}
+  .artifact-caption{color:var(--clay);font-size:11px;text-align:center;margin-top:5px;font-style:italic}
+  .options-grid{display:grid;gap:10px;margin-bottom:14px}
+  .option-btn{background:#FFFFFF;box-shadow:0 3px 12px rgba(61,123,245,0.08);border:none;border-radius:16px;padding:15px 16px;color:var(--ash);font-size:14px;font-family:inherit;font-weight:600;cursor:pointer;text-align:left;transition:all 0.18s;display:flex;align-items:center;gap:10px;line-height:1.4}
+  .option-btn:hover:not(:disabled){box-shadow:0 4px 16px rgba(61,123,245,0.18);transform:translateY(-1px)}
+  .opt-label{min-width:24px;height:24px;border-radius:50%;background:rgba(150,148,180,0.15);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:var(--sand);flex-shrink:0}
+  .option-btn.correct{border-color:var(--correct);background:rgba(74,124,89,0.18);color:#7ecb94}
+  .option-btn.correct .opt-label{background:var(--correct);color:white}
+  .option-btn.wrong{border-color:var(--wrong);background:rgba(185,64,64,0.15);color:#e87474}
+  .option-btn.wrong .opt-label{background:var(--wrong);color:white}
+  .ox-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px}
+  .ox-btn{background:#FFFFFF;box-shadow:0 2px 12px rgba(61,123,245,0.10);border:2px solid rgba(150,148,180,0.18);border-radius:16px;padding:24px 0;font-size:46px;cursor:pointer;transition:all 0.18s;font-family:inherit}
+  .ox-btn:hover:not(:disabled){transform:scale(1.04)}
+  .ox-btn.correct{border-color:var(--correct);background:rgba(74,124,89,0.18)}
+  .ox-btn.wrong{border-color:var(--wrong);background:rgba(185,64,64,0.15)}
+  .short-answer-wrap{margin-bottom:14px}
+  .answer-input{width:100%;background:rgba(61,123,245,0.05);border:1.5px solid rgba(150,148,180,0.2);border-radius:12px;padding:13px 15px;color:var(--ash);font-size:16px;font-family:inherit;outline:none;transition:border-color 0.2s}
+  .answer-input:focus{border-color:var(--ember)}
+  .answer-input.correct{border-color:var(--correct)}
+  .answer-input.wrong{border-color:var(--wrong)}
+  .submit-btn{width:100%;margin-top:8px;background:#FFFFFF;box-shadow:0 3px 12px rgba(61,123,245,0.10);border:none;border-radius:16px;padding:14px;color:var(--ash);font-size:14px;font-weight:700;font-family:inherit;cursor:pointer;transition:all 0.2s}
+  .feedback-box{border-radius:12px;padding:13px 15px;margin-bottom:12px;display:none;animation:slideUp 0.3s ease}
+  .feedback-box.correct{background:rgba(74,124,89,0.15);border:1px solid rgba(74,124,89,0.4)}
+  .feedback-box.wrong{background:rgba(185,64,64,0.12);border:1px solid rgba(185,64,64,0.35)}
+  .feedback-title{font-weight:700;font-size:13px;margin-bottom:4px}
+  .feedback-box.correct .feedback-title{color:#7ecb94}
+  .feedback-box.wrong .feedback-title{color:#e87474}
+  .feedback-explain{color:var(--sand);font-size:13px;line-height:1.55}
+  .next-btn{width:100%;background:var(--ember);border:none;border-radius:16px;padding:16px;color:white;font-size:15px;font-weight:700;font-family:inherit;cursor:pointer;transition:all 0.2s;display:none;box-shadow:0 4px 14px rgba(61,123,245,0.28)}
+  .next-btn:hover{background:#2F63D6}
+  /* 타이머 */
+  .timer-circle{position:relative;width:42px;height:42px}
+  .exam-timer-bar{display:flex;align-items:center;justify-content:center;gap:8px;background:rgba(212,98,42,0.12);border:1.5px solid rgba(212,98,42,0.3);border-radius:12px;padding:10px;margin-bottom:14px;color:var(--ash);font-size:15px;font-weight:700}
+  .exam-timer-bar #exam-timer-text{font-variant-numeric:tabular-nums;font-size:17px}
+  .exam-timer-bar.danger{background:rgba(185,64,64,0.18);border-color:rgba(185,64,64,0.4);color:#e87474;animation:examPulse 1s infinite}
+  @keyframes examPulse{0%,100%{opacity:1}50%{opacity:0.6}}
+  .option-btn.exam-selected{border-color:var(--ember);background:rgba(212,98,42,0.15)}
+  .exam-nav{display:flex;align-items:center;gap:10px;margin-top:6px}
+  .exam-nav-btn{flex:1;background:rgba(61,123,245,0.06);border:1.5px solid rgba(150,148,180,0.2);border-radius:10px;padding:13px;color:var(--ash);font-size:14px;font-weight:700;font-family:inherit;cursor:pointer}
+  .exam-nav-btn:disabled{opacity:0.35;cursor:default}
+  .exam-position{color:var(--sand);font-size:12px;font-weight:600;white-space:nowrap}
+  .exam-submit-btn{flex:1;background:var(--ember);border:none;border-radius:16px;padding:14px;color:white;font-size:14px;font-weight:700;font-family:inherit;cursor:pointer;box-shadow:0 4px 14px rgba(61,123,245,0.28)}
+  .exam-submit-btn:hover{background:#2F63D6}
+  .timer-circle svg{transform:rotate(-90deg);width:42px;height:42px}
+  .timer-circle svg circle{fill:none;stroke-width:3.5}
+  .timer-bg{stroke:rgba(150,148,180,0.12)}
+  .timer-ring{stroke:var(--ember);stroke-linecap:round;transition:stroke-dashoffset 1s linear,stroke 0.3s}
+  .timer-ring.danger{stroke:var(--wrong)}
+  .timer-num{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);font-size:14px;font-weight:900;color:var(--ash)}
+  .timer-num.danger{color:#e87474}
+  /* 결과 */
+  #result-screen{display:none;text-align:center;animation:fadeIn 0.6s ease}
+  .result-icon{font-size:64px;margin-bottom:8px;display:block}
+  .result-grade-ring{width:150px;height:150px;border-radius:50%;background:linear-gradient(135deg,rgba(61,123,245,0.14),rgba(61,123,245,0.04));display:flex;align-items:center;justify-content:center;margin:0 auto 16px;box-shadow:0 8px 24px rgba(61,123,245,0.16)}
+  .result-grade{font-size:clamp(30px,8vw,44px);font-weight:900;margin-bottom:0;color:var(--ember)}
+  .result-msg{color:var(--sand);font-size:14px;margin-bottom:22px;line-height:1.6}
+  .pass-badge{display:inline-block;font-size:15px;font-weight:900;padding:10px 24px;border-radius:24px;margin-bottom:20px}
+  .pass-badge.pass{background:rgba(52,199,123,0.15);color:#1E9A5C;border:none}
+  .pass-badge.fail{background:rgba(240,85,92,0.12);color:var(--wrong);border:none}
+  .score-display{background:#FFFFFF;box-shadow:0 4px 18px rgba(61,123,245,0.12);border:none;border-radius:20px;padding:22px;margin-bottom:18px;display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+  .score-item{text-align:center}
+  .score-num{color:var(--ash);font-size:28px;font-weight:900}
+  .score-lbl{color:var(--sand);font-size:11px;margin-top:3px}
+  .wrong-list{text-align:left;background:rgba(185,64,64,0.08);border:1px solid rgba(185,64,64,0.2);border-radius:12px;padding:16px;margin-bottom:18px}
+  .wrong-list h3{color:#e87474;font-size:13px;margin-bottom:10px}
+  .wrong-item{color:var(--sand);font-size:12px;margin-bottom:8px;line-height:1.5;padding-bottom:8px;border-bottom:1px solid rgba(185,64,64,0.12)}
+  .wrong-item:last-child{margin-bottom:0;padding-bottom:0;border-bottom:none}
+  .wrong-item strong{color:var(--ash);display:block;margin-bottom:2px;font-size:12px}
+  .leaderboard{background:rgba(61,123,245,0.03);border:1.5px solid rgba(150,148,180,0.12);border-radius:14px;padding:16px;margin-bottom:18px}
+  .lb-title{color:var(--clay);font-size:12px;font-weight:700;letter-spacing:2px;margin-bottom:10px}
+  .lb-empty{color:var(--sand);font-size:13px;text-align:center;padding:8px 0}
+  .lb-row{display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid rgba(150,148,180,0.08)}
+  .lb-row:last-child{border-bottom:none}
+  .lb-rank{min-width:24px;font-size:14px;text-align:center}
+  .lb-name{color:var(--ash);font-size:13px;font-weight:600;flex:1}
+  .lb-meta{color:var(--sand);font-size:11px}
+  .lb-pts{color:var(--ember);font-size:14px;font-weight:700;min-width:42px;text-align:right}
+  .lb-me .lb-name{color:#FFD700}
+  .result-btns{display:flex;gap:10px;margin-bottom:10px}
+  .retry-btn,.home-btn{flex:1;border-radius:16px;padding:14px;font-size:14px;font-weight:700;font-family:inherit;cursor:pointer;transition:all 0.2s;border:none}
+  .retry-btn{background:var(--ember);color:white}
+  .retry-btn:hover{background:#2F63D6}
+  .home-btn{background:rgba(61,123,245,0.06);color:var(--ash);border:1.5px solid rgba(150,148,180,0.2)!important}
+  .toast{position:fixed;bottom:30px;left:50%;transform:translateX(-50%) translateY(20px);background:var(--correct);color:white;padding:12px 24px;border-radius:30px;font-size:14px;font-weight:700;opacity:0;transition:all 0.3s;pointer-events:none;z-index:999}
+  .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+  @keyframes fadeIn{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
+  @keyframes slideUp{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+  @keyframes shake{0%,100%{transform:translateX(0)}25%{transform:translateX(-4px)}75%{transform:translateX(4px)}}
+  .shake{animation:shake 0.3s ease}
+  .section-label{color:var(--ash);font-size:15px;font-weight:800;letter-spacing:0;margin:20px 0 10px;text-align:left;display:flex;align-items:center;gap:6px}
+  .lecture-more-btn{width:100%;margin-top:6px;background:#FFFFFF;box-shadow:0 2px 12px rgba(61,123,245,0.10);border:1.5px solid rgba(150,148,180,0.18);border-radius:10px;padding:10px;color:var(--sand);font-size:12px;font-weight:600;font-family:inherit;cursor:pointer;transition:all 0.2s}
+  .lecture-more-btn:hover{background:rgba(150,148,180,0.08);color:var(--ash)}
+  .lecture-more-btn.hidden{display:none}
+  .lecture-list{display:flex;flex-direction:column;gap:6px;margin-bottom:4px}
+  .lecture-item{display:flex;align-items:center;gap:10px;background:#FFFFFF;box-shadow:0 2px 12px rgba(61,123,245,0.10);border:1.5px solid rgba(150,148,180,0.16);border-radius:10px;padding:10px 12px;cursor:pointer;transition:all 0.2s;text-align:left}
+  .lecture-item:hover{border-color:var(--sand)}
+  .lecture-item.active{border-color:var(--ember);background:rgba(212,98,42,0.12)}
+  .lecture-item.locked{opacity:0.5;cursor:default}
+  .lecture-item.today{background:rgba(212,98,42,0.08);border-color:rgba(212,98,42,0.3)}
+  .lecture-badge{width:26px;height:26px;border-radius:50%;display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:12px;font-weight:700}
+  .lecture-badge.ready{background:rgba(74,124,89,0.2);color:#7ecb94}
+  .lecture-badge.locked{background:rgba(150,148,180,0.12);color:var(--sand)}
+  .lecture-badge.today{background:var(--ember);color:white}
+  .lecture-info{flex:1;min-width:0}
+  .lecture-title{color:var(--ash);font-size:13px;font-weight:600}
+  .lecture-sub{color:var(--sand);font-size:11px;margin-top:1px}
+  .unit-grid{display:flex;flex-direction:column;gap:6px;margin-bottom:6px}
+  .unit-group-toggle{display:flex;justify-content:space-between;align-items:center;background:#FFFFFF;box-shadow:0 3px 12px rgba(61,123,245,0.08);border:none;border-radius:14px;padding:14px 16px;font-size:13px;font-weight:800;color:var(--ash);cursor:pointer;user-select:none;margin-top:8px}
+  .unit-group-toggle:hover{color:var(--ash);border-color:rgba(150,148,180,0.3)}
+  .unit-group-body{display:flex;flex-direction:column;gap:6px}
+  .unit-card{display:flex;align-items:center;gap:14px;background:#FFFFFF;box-shadow:0 3px 14px rgba(61,123,245,0.10);border:none;border-radius:18px;padding:16px 16px;cursor:pointer;transition:all 0.2s;text-align:left}
+  .unit-card:hover,.unit-card.active{box-shadow:0 4px 18px rgba(61,123,245,0.22);background:rgba(61,123,245,0.05)}
+  .unit-card.done{background:rgba(52,199,123,0.07)}
+  .unit-card{position:relative}
+  .unit-pass-overlay{display:none;position:absolute;inset:0;border-radius:18px;background:rgba(240,85,92,0.88);align-items:center;justify-content:center;color:white;font-size:15px;font-weight:900;letter-spacing:1px;z-index:1;pointer-events:none}
+  .unit-card.unit-passed .unit-pass-overlay{display:flex}
+  .unit-card.done .unit-title::after{content:' ✅';font-size:10px}
+  .unit-card.partial{background:rgba(255,183,3,0.08)}
+  .unit-card.partial .unit-title::after{content:' ◐';font-size:10px;color:#C98A00}
+  .unit-card.done.active,.unit-card.partial.active{box-shadow:0 4px 18px rgba(61,123,245,0.22)}
+  .unit-icon{width:46px;height:46px;border-radius:16px;background:linear-gradient(135deg,rgba(61,123,245,0.16),rgba(61,123,245,0.06));display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:22px}
+  .unit-info{flex:1;min-width:0}
+  .unit-title{color:var(--ash);font-weight:800;font-size:14px;line-height:1.35}
+  .unit-sub{color:var(--sand);font-size:12px;margin-top:2px}
+  .unit-grid .unit-card::after{content:'›';position:absolute;right:16px;top:50%;transform:translateY(-50%);color:var(--clay);font-size:20px;font-weight:700}
+  /* 강의 보기 화면 */
+  #lecture-screen{display:none;animation:fadeIn 0.5s ease}
+  .lecture-item{text-decoration:none}
+  .lecture-badge.today{background:var(--ember);color:white}
+  .lecture-badge.ready{background:rgba(74,124,89,0.2);color:#7ecb94}
+
+/* ===== 사건 배열하기 게임 스타일 ===== */
+  @import url('https://fonts.googleapis.com/css2?family=Song+Myung&family=Noto+Serif+KR:wght@400;600;700;900&family=Noto+Sans+KR:wght@400;600;700&display=swap');
+
+  :root{
+    --ink:#F5F4FB;        /* 배경(라이트 통일) */
+    --ink2:#FFFFFF;
+    --parchment:#FFFFFF;  /* 두루마리 종이 */
+    --parchment-dim:#F0EEF8;
+    --brass:#C9A227;      /* 놋쇠/금박 */
+    --brass-dim:#8F7620;
+    --text-dark:#22223A;
+    --good:#4A8B5C;
+    --bad:#B5473A;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{
+    background:var(--ink);
+    background-image:
+      radial-gradient(ellipse at 15% 10%, rgba(201,162,39,0.08) 0%, transparent 45%),
+      radial-gradient(ellipse at 90% 80%, rgba(201,162,39,0.06) 0%, transparent 50%);
+    min-height:100vh;
+    font-family:'Noto Sans KR',sans-serif;
+    color:var(--parchment);
+    display:flex;
+    justify-content:center;
+    padding:22px 14px 60px;
+  }
+  .wrap{width:100%;max-width:480px}
+
+  /* ── 헤더 ── */
+  .hero{text-align:center;margin-bottom:22px;position:relative}
+  .hero-eyebrow{font-size:11px;letter-spacing:5px;color:var(--brass);font-weight:700;margin-bottom:8px}
+  .hero h1{
+    font-family:'Song Myung',serif;
+    font-size:30px;
+    margin:0 0 6px;
+    color:var(--parchment);
+    letter-spacing:1px;
+  }
+  .hero p{font-size:13px;color:rgba(237,228,208,0.65);margin:0;line-height:1.6}
+  .scroll-rule{
+    height:2px;
+    margin:16px auto 0;
+    width:70%;
+    background:linear-gradient(90deg,transparent,var(--brass-dim),var(--brass),var(--brass-dim),transparent);
+  }
+
+  /* ── 공용 카드 ── */
+  .panel{
+    background:var(--parchment);
+    color:var(--text-dark);
+    border-radius:4px;
+    padding:22px 18px;
+    box-shadow:0 10px 30px rgba(0,0,0,0.35);
+    position:relative;
+    border:1px solid rgba(43,33,24,0.15);
+  }
+  .panel::before{ /* 종이 모서리 접힘 느낌 */
+    content:'';
+    position:absolute; top:0; right:0;
+    width:0; height:0;
+    border-style:solid;
+    border-width:0 22px 22px 0;
+    border-color:transparent rgba(43,33,24,0.12) transparent transparent;
+  }
+
+  /* ── 시작 화면 ── */
+  #tlg-start-screen .section-title{
+    font-family:'Song Myung',serif;
+    font-size:15px;
+    color:var(--text-dark);
+    margin:0 0 12px;
+    display:flex;align-items:center;gap:8px;
+  }
+  .diff-list{display:flex;flex-direction:column;gap:10px;margin-bottom:18px}
+  .diff-card{
+    display:flex;align-items:center;gap:14px;
+    border:1.5px solid rgba(43,33,24,0.18);
+    border-radius:6px;
+    padding:14px 16px;
+    cursor:pointer;
+    transition:all .15s;
+    background:rgba(61,123,245,0.25);
+  }
+  .diff-card:hover{border-color:var(--brass-dim);background:rgba(201,162,39,0.1)}
+  .diff-card.chosen{border-color:var(--brass);background:rgba(201,162,39,0.18)}
+  .diff-card.tlg-passed{border-color:#4A8B5C;background:rgba(74,139,92,0.12)}
+  .diff-card{position:relative}
+  .tlg-pass-tag{position:absolute;top:8px;right:10px;background:#4A8B5C;color:white;font-size:10px;font-weight:900;padding:3px 8px;border-radius:10px;letter-spacing:1px}
+  .diff-num{
+    font-family:'Song Myung',serif;
+    font-size:22px;color:var(--brass-dim);
+    width:34px;text-align:center;flex-shrink:0;
+  }
+  .diff-info b{display:block;font-size:14px;margin-bottom:2px}
+  .diff-info span{font-size:11px;color:rgba(43,33,24,0.6)}
+  .start-btn:hover{background:var(--ink2)}
+  .tlgScore-strip{
+    display:flex;justify-content:space-between;
+    font-size:11px;color:rgba(43,33,24,0.55);
+    margin-top:14px;padding-top:12px;
+    border-top:1px dashed rgba(43,33,24,0.2);
+  }
+
+  /* ── 문제 화면 ── */
+  #tlg-quiz-screen{display:none}
+  .quiz-topbar{display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;font-size:12px;color:rgba(237,228,208,0.7)}
+  .quiz-topbar .badge{
+    background:rgba(201,162,39,0.15);
+    border:1px solid var(--brass-dim);
+    color:var(--brass);
+    padding:3px 10px;border-radius:12px;font-weight:700;
+  }
+  .quiz-instruction{
+    font-family:'Song Myung',serif;
+    font-size:16px;
+    text-align:center;
+    margin-bottom:16px;
+    color:var(--text-dark);
+  }
+
+  .rope-line{
+    display:flex;flex-wrap:wrap;gap:8px;
+    min-height:52px;
+    background:rgba(43,33,24,0.05);
+    border:1.5px dashed rgba(43,33,24,0.25);
+    border-radius:6px;
+    padding:10px;
+    margin-bottom:16px;
+    align-items:flex-start;
+  }
+  .rope-slot{
+    display:flex;align-items:center;gap:6px;
+    background:var(--ink);
+    color:var(--brass);
+    border-radius:16px;
+    padding:6px 12px 6px 8px;
+    font-size:12px;font-weight:700;
+    cursor:pointer;
+    animation:popIn .2s ease;
+  }
+  .rope-slot .n{
+    background:var(--brass);color:var(--ink);
+    width:18px;height:18px;border-radius:50%;
+    display:flex;align-items:center;justify-content:center;
+    font-size:10px;flex-shrink:0;
+  }
+  @keyframes popIn{from{transform:scale(0.6);opacity:0}to{transform:scale(1);opacity:1}}
+  .rope-empty-hint{color:rgba(43,33,24,0.4);font-size:12px;padding:8px}
+
+  .event-tlgPool{display:flex;flex-direction:column;gap:8px;margin-bottom:16px}
+  .event-card{
+    display:flex;align-items:center;gap:10px;
+    border:1.5px solid rgba(43,33,24,0.2);
+    border-radius:6px;
+    padding:12px 14px;
+    cursor:pointer;
+    background:rgba(61,123,245,0.35);
+    transition:all .15s;
+    font-size:13px;font-weight:600;
+  }
+  .event-card:hover{border-color:var(--brass-dim);transform:translateX(2px)}
+  .event-card.used{opacity:0.25;pointer-events:none;text-decoration:line-through}
+  .event-card .dot{width:7px;height:7px;border-radius:50%;background:var(--brass-dim);flex-shrink:0}
+
+  .quiz-actions{display:flex;gap:10px}
+  .btn-secondary{
+    flex:1;background:transparent;border:1.5px solid rgba(43,33,24,0.3);
+    color:var(--text-dark);border-radius:6px;padding:13px;
+    font-family:inherit;font-size:13px;font-weight:700;cursor:pointer;
+  }
+  .btn-primary{
+    flex:2;background:var(--ink);color:var(--brass);border:none;border-radius:6px;
+    padding:13px;font-family:'Noto Serif KR',serif;font-size:14px;font-weight:700;cursor:pointer;
+  }
+  .btn-primary:disabled{opacity:0.35;cursor:default}
+
+  /* ── 결과 오버레이 ── */
+  #result-panel{display:none;margin-top:16px}
+  .result-flag{
+    text-align:center;font-family:'Song Myung',serif;font-size:20px;margin-bottom:10px;
+  }
+  .result-flag.good{color:var(--good)}
+  .result-flag.bad{color:var(--bad)}
+  .correct-order{
+    display:flex;flex-direction:column;gap:6px;margin:14px 0;
+  }
+  .correct-order .co-item{
+    display:flex;align-items:center;gap:10px;
+    font-size:13px;padding:8px 10px;
+    background:rgba(43,33,24,0.05);border-radius:6px;
+  }
+  .correct-order .co-item .n{
+    background:var(--brass);color:var(--ink);width:20px;height:20px;border-radius:50%;
+    display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;flex-shrink:0;
+  }
+  .explain-box{
+    background:rgba(201,162,39,0.1);
+    border-left:3px solid var(--brass);
+    padding:12px 14px;border-radius:4px;
+    font-size:12.5px;line-height:1.7;color:var(--text-dark);
+    margin-bottom:16px;
+  }
+  .explain-box b{color:var(--brass-dim)}
+
+  @media (prefers-reduced-motion: reduce){
+    .rope-slot{animation:none}
+  }
+/* ===== 역사 훈련소 ===== */
+#ht-list-screen{display:none;animation:fadeIn 0.5s ease}
+#ht-part-screen{display:none;animation:fadeIn 0.5s ease}
+.ht-part-card{display:flex;align-items:center;gap:12px;background:#FFFFFF;box-shadow:0 2px 12px rgba(61,123,245,0.10);border:1.5px solid rgba(150,148,180,0.2);border-radius:10px;padding:14px;margin-bottom:10px;cursor:pointer;transition:all .15s}
+.ht-part-card:hover{border-color:var(--sand)}
+.ht-part-card.done{border-color:var(--correct);background:rgba(74,124,89,0.1)}
+.ht-part-num{width:36px;height:36px;border-radius:50%;background:rgba(61,123,245,0.06);display:flex;align-items:center;justify-content:center;font-weight:900;font-size:14px;flex-shrink:0;color:var(--sand)}
+.ht-part-card.done .ht-part-num{background:var(--correct);color:white}
+.ht-part-info{flex:1;min-width:0}
+.ht-part-info b{display:block;font-size:14px;color:var(--ash)}
+.ht-part-info span{font-size:11px;color:var(--sand)}
+.ht-part-check{font-size:20px;color:var(--correct)}
+.ht-part-btn{background:var(--ember);color:white;border:none;border-radius:8px;padding:8px 12px;font-size:12px;font-weight:700;cursor:pointer;flex-shrink:0}
+
+#ht-step-indicator{display:flex;justify-content:center;gap:6px;flex-wrap:wrap;font-size:11px;color:var(--sand);margin-bottom:14px;font-weight:700}
+#ht-step-indicator span.active{color:var(--ember)}
+#ht-part-title{font-size:16px;font-weight:900;color:var(--ash);text-align:center;margin-bottom:14px}
+
+.ht-reading-card{background:#FFFFFF;box-shadow:0 2px 12px rgba(61,123,245,0.10);border:1.5px solid rgba(150,148,180,0.18);border-radius:12px;padding:20px 18px;font-size:16px;line-height:2.1;color:var(--ash);margin-bottom:16px}
+.ht-reading-card b{color:var(--ember)}
+
+.ht-sentence-block{margin-bottom:16px}
+.ht-sentence-original{font-size:14px;color:var(--ash);line-height:1.7;background:#FFFFFF;box-shadow:0 2px 12px rgba(61,123,245,0.10);border-radius:8px;padding:12px;margin-bottom:8px;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none}
+.ht-sentence-input{width:100%;background:rgba(61,123,245,0.06);border:1.5px solid rgba(150,148,180,0.25);border-radius:8px;padding:12px;color:var(--ash);font-size:14px;font-family:inherit;resize:vertical;min-height:60px}
+.ht-sentence-feedback{font-size:12px;margin-top:6px;min-height:16px}
+.ht-sentence-feedback.ok{color:#7ecb94}
+.ht-sentence-feedback.bad{color:#e87474}
+
+.ht-quiz-card{background:#FFFFFF;box-shadow:0 2px 12px rgba(61,123,245,0.10);border:1.5px solid rgba(150,148,180,0.2);border-radius:12px;padding:20px 18px;text-align:center}
+.ht-quiz-progress{font-size:12px;color:var(--sand);margin-bottom:10px;font-weight:700}
+.ht-quiz-text{font-size:16px;color:var(--ash);line-height:1.8;margin-bottom:16px}
+.ht-quiz-input{width:100%;background:rgba(61,123,245,0.06);border:1.5px solid rgba(150,148,180,0.25);border-radius:10px;padding:12px 14px;color:var(--ash);font-size:16px;text-align:center;font-family:inherit;margin-bottom:12px}
+.ht-quiz-feedback{font-size:13px;margin-bottom:10px;min-height:18px}
+.ht-quiz-feedback.ok{color:#7ecb94;font-weight:700}
+.ht-quiz-feedback.bad{color:#e87474;font-weight:700}
+.ht-quiz-hint{font-size:12px;color:var(--brass,#D4A62A);background:rgba(212,166,42,0.1);border-radius:6px;padding:8px;margin-bottom:10px}
+
+.ht-result-card{background:#FFFFFF;box-shadow:0 2px 12px rgba(61,123,245,0.10);border:1.5px solid rgba(150,148,180,0.2);border-radius:12px;padding:22px 18px;text-align:center}
+.ht-result-score{font-size:34px;font-weight:900;color:var(--ember);margin-bottom:6px}
+.ht-result-row{display:flex;justify-content:space-around;margin:16px 0;font-size:13px;color:var(--sand)}
+.ht-result-row b{display:block;font-size:18px;color:var(--ash)}
+
+.ht-incomplete-card{flex-direction:column;align-items:stretch;gap:8px}
+.ht-incomplete-area{font-size:10px;color:var(--sand);font-weight:700;letter-spacing:0.5px;margin-bottom:2px}
+.ht-progress-row{margin-top:6px}
+.ht-progress-status{font-size:11px;color:var(--sand);font-weight:700}
+.ht-progress-row.warn .ht-progress-status{color:#e87474}
+.ht-progress-bar{background:rgba(61,123,245,0.08);border-radius:6px;height:6px;overflow:hidden;margin-top:4px}
+.ht-progress-fill{background:linear-gradient(90deg,var(--ember),#7ecb94);height:100%;border-radius:6px;transition:width 0.4s}
+.ht-progress-row.warn .ht-progress-fill{background:#e87474}
+.ht-group-card{cursor:default}
+.ht-group-header{display:flex;align-items:flex-start;gap:8px;cursor:pointer}
+.ht-group-arrow{color:var(--sand);font-size:13px;margin-top:2px;flex-shrink:0}
+.ht-group-children{flex-direction:column;gap:6px;margin-top:10px;padding-top:10px;border-top:1px dashed rgba(150,148,180,0.2)}
+.ht-group-child-row{display:flex;justify-content:space-between;font-size:11px;color:var(--sand);padding:4px 2px}
+.ht-reading-paragraph{margin-bottom:14px}
+.ht-para-confirm-btn{width:100%;background:rgba(61,123,245,0.06);border:1.5px solid rgba(150,148,180,0.25);color:var(--sand);border-radius:8px;padding:10px;font-size:13px;font-weight:700;cursor:pointer}
+.ht-para-confirm-btn:disabled{opacity:0.35;cursor:not-allowed}
+.ht-para-confirm-btn.confirmed{background:rgba(74,124,89,0.15);border-color:#7ecb94;color:#7ecb94;opacity:1}
+.ht-key-sentence-box{background:#FFFFFF;box-shadow:0 2px 12px rgba(61,123,245,0.10);border:1.5px solid rgba(150,148,180,0.2);border-radius:10px;padding:14px;margin:16px 0}
+.ht-key-sentence-title{font-size:13px;font-weight:700;color:var(--ash);margin-bottom:10px}
+.ht-key-sentence-option{font-size:13px;color:var(--sand);padding:10px;border-radius:8px;background:#FFFFFF;box-shadow:0 2px 12px rgba(61,123,245,0.10);margin-bottom:8px;cursor:pointer;line-height:1.6}
+.ht-key-sentence-option.selected{background:rgba(74,124,89,0.15);color:#7ecb94;font-weight:700}
+.ht-reading-hint{font-size:12px;color:#e8a674;text-align:center;margin:10px 0;padding:8px;background:rgba(232,166,116,0.1);border-radius:6px}
+
+/* PART 25부터 사용하는 읽기 이해 확인 흐름 */
+.ht-check-reading-wrap{max-width:720px;margin:0 auto}
+.ht-check-reading-progress-row{display:flex;align-items:center;justify-content:space-between;color:#3979c9;font-size:12px;margin-bottom:7px}
+.ht-check-reading-progress{height:7px;border-radius:999px;background:#e8eef8;overflow:hidden;margin-bottom:16px}
+.ht-check-reading-progress>span{display:block;height:100%;background:linear-gradient(90deg,#349BFE,#7ecb94);transition:width .25s ease}
+.ht-check-reading-label{text-align:center;color:#3979c9;font-size:12px;font-weight:900;margin:0 0 10px}
+.ht-check-reading-card{background:linear-gradient(145deg,#f8fbff,#edf4ff);border:1.5px solid rgba(52,155,254,.24);border-radius:16px;padding:21px 18px;box-shadow:0 5px 18px rgba(52,155,254,.13);color:#1f2937;margin-bottom:12px}
+.ht-check-reading-card h3{font-size:18px;color:#111827;margin:0 0 12px}
+.ht-check-reading-card p{font-size:16px;line-height:1.95;margin:0;color:#1f2937}
+.ht-check-reading-card b{color:#d8642a}
+.ht-art-caption{font-size:12px;color:#64748b;text-align:center;margin:0 0 10px}
+.ht-check-reading-guide{font-size:12px;line-height:1.6;color:#64748b;text-align:center;margin:10px 0 12px}
+.ht-check-reading-retry{background:#fff7ed;border:1px solid #fed7aa;color:#9a5a13;border-radius:12px;padding:11px 12px;margin:0 0 12px;font-size:13px;font-weight:800;line-height:1.55;text-align:center}
+.ht-check-reading-retry small{display:block;margin-top:5px;font-size:12px;font-weight:600;color:#8a6842}
+.ht-check-question-card{background:#fff;border:1.5px solid rgba(150,148,180,.22);border-radius:16px;padding:20px 17px;box-shadow:0 4px 16px rgba(61,123,245,.1);color:#1f2937}
+.ht-check-question-card h3{font-size:17px;line-height:1.65;text-align:center;margin:7px 0 16px;color:#111827}
+.ht-check-question-note{text-align:center;font-size:12px;color:#64748b}
+.ht-check-option-grid{display:grid;gap:10px}
+.ht-check-option-grid button{width:100%;border:1.5px solid #cbd8ea;background:#f8fbff;color:#334155;border-radius:12px;padding:13px 12px;font:800 14px/1.5 inherit;cursor:pointer;text-align:left}
+.ht-check-option-grid button:hover{background:#e7f4ff;border-color:#349BFE;color:#2167ad}
+.ht-check-flow-review{display:grid;gap:8px;margin:12px 0 16px}
+.ht-check-flow-review>div{display:flex;align-items:center;gap:10px;background:#fff;border:1px solid #dbe5f1;border-radius:10px;padding:10px 12px;color:#334155;font-size:13px;font-weight:800}
+.ht-check-flow-review b{display:flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:50%;background:#e7f4ff;color:#2167ad;flex-shrink:0}
+.ht-check-reading-done{text-align:center;background:#fff;border:1.5px solid rgba(126,203,148,.5);border-radius:16px;padding:20px 16px;color:#334155;margin-bottom:14px}
+.ht-check-reading-done h3{color:#2f7547;margin:3px 0 8px}
+.ht-check-reading-done p{font-size:13px;line-height:1.65;margin:0 0 12px;color:#64748b}
+.ht-check-reading-icon{font-size:30px}
+@media(max-width:520px){
+  .ht-check-reading-card{padding:18px 14px}
+  .ht-check-reading-card p{font-size:15px;line-height:1.9}
+  .ht-check-question-card{padding:18px 13px}
+}
+
+/* 전민건 맞춤형 작업기억 학습 · PART 17 이후 공통 */
+.ht-mingeon-wrap{max-width:720px;margin:0 auto}
+.ht-mingeon-group-label{font-size:12px;font-weight:900;color:#3979c9;text-align:center;margin-bottom:8px}
+.ht-mingeon-progress{height:7px;border-radius:999px;background:#e8eef8;overflow:hidden;margin:0 0 14px}
+.ht-mingeon-progress>span{display:block;height:100%;background:linear-gradient(90deg,#349BFE,#7ecb94);transition:width .25s ease}
+.ht-mingeon-card{background:linear-gradient(145deg,#f7faff,#edf4ff);border:1.5px solid rgba(52,155,254,.24);border-radius:16px;padding:20px 18px;box-shadow:0 5px 18px rgba(52,155,254,.14);color:#1f2937}
+.ht-mingeon-card h3{font-size:17px;color:#111827;margin:0 0 12px}
+.ht-mingeon-card p{font-size:16px;line-height:1.85;margin:0;color:#1f2937}
+.ht-mingeon-guide{font-size:13px;line-height:1.65;color:#64748b;margin:12px 0;text-align:center}
+.ht-mingeon-retry{background:#fff7ed;color:#9a5a13;border-radius:10px;padding:9px 11px;margin-bottom:12px;font-size:13px;font-weight:800;text-align:center}
+.ht-mingeon-keywords{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px;margin:16px 0}
+.ht-mingeon-keyword,.ht-mingeon-choice{border:1.5px solid #cbd8ea;background:#fff;color:#334155;border-radius:12px;padding:12px 10px;font:800 14px/1.4 inherit;cursor:pointer}
+.ht-mingeon-keyword.selected{background:#e7f4ff;border-color:#349BFE;color:#2167ad}
+.ht-mingeon-choice-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-top:14px}
+.ht-mingeon-choice.correct{background:#eaf8ef;border-color:#7ecb94;color:#2f7547}
+.ht-mingeon-choice.wrong{background:#fff0f0;border-color:#e87474;color:#a74444}
+.ht-mingeon-action{width:100%;border:0;border-radius:13px;padding:14px;background:linear-gradient(135deg,#349BFE,#5378F5);color:#fff;font:900 14px/1.3 inherit;cursor:pointer}
+.ht-mingeon-action:disabled{opacity:.42;cursor:not-allowed}
+.ht-mingeon-sentence{background:#fff;border:1.5px solid #d9e3f0;border-radius:12px;padding:15px;color:#1f2937;font-size:15px;line-height:1.8;text-align:center}
+.ht-mingeon-blank{display:inline-block;min-width:64px;border-bottom:2px solid #349BFE;color:#2167ad;font-weight:900;margin:0 3px}
+.ht-mingeon-group-done{text-align:center;background:#fff;border:1.5px solid rgba(126,203,148,.48);border-radius:16px;padding:24px 18px;color:#1f2937}
+.ht-mingeon-group-done h3{color:#2f7547;margin:0 0 10px}
+@media(max-width:520px){
+  .ht-mingeon-keywords,.ht-mingeon-choice-grid{grid-template-columns:1fr}
+  .ht-mingeon-card{padding:17px 14px}
+}
+
+/* ==================================================
+   학생 선택 화면 / 학습 홈 화면 분리
+================================================== */
+#student-select-view,
+#learning-home-view{width:100%}
+
+#student-select-view{animation:fadeIn .35s ease}
+#learning-home-view{display:none;animation:fadeIn .35s ease;text-align:left}
+
+.learning-home-header{text-align:center;margin-bottom:10px}
+.learning-home-header .era-icon{font-size:46px;margin-bottom:8px}
+.learning-home-header .subtitle{margin-bottom:16px}
+
+.change-student-btn{
+  margin:0 0 14px;
+  background:#FFFFFF;
+  border:none;
+  border-radius:14px;
+  padding:12px 14px;
+  color:var(--sand);
+  text-decoration:none;
+  box-shadow:0 2px 12px rgba(61,123,245,.10);
+}
+.change-student-btn:hover{color:var(--ash);box-shadow:0 4px 16px rgba(61,123,245,.16)}
+
+.home-menu-grid{margin-top:0;margin-bottom:18px}
+  .change-student-btn{margin-top:24px!important;padding-bottom:8px}
+
+
+50%{transform:scale(1.04)}
+}
+
+
+/* 왼쪽 하단 관리자 모드 버튼 */
+
+
+
+/* ==================================================
+   학생 선택 화면 — 참고 이미지형 프로필 카드
+================================================== */
+#student-select-view{
+  text-align:left;
+  padding:4px 0 12px;
+}
+
+#student-select-view > .era-icon{
+  width:68px;
+  height:68px;
+  margin:0 0 14px;
+  border-radius:20px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  background:linear-gradient(145deg,#E7F0FF,#FFFFFF);
+  box-shadow:0 8px 24px rgba(61,123,245,.12);
+  font-size:40px;
+  filter:none;
+}
+
+#student-select-view .title-label{
+  margin-bottom:42px;
+  color:var(--ash);
+  font-size:18px;
+  font-weight:900;
+  letter-spacing:-.4px;
+}
+
+#student-select-view #home-heading{
+  margin-bottom:10px;
+  font-size:clamp(28px,6vw,38px);
+  line-height:1.18;
+  text-align:left;
+}
+
+#student-select-view > .subtitle{
+  margin-bottom:28px;
+  color:var(--sand);
+  font-size:15px;
+  text-align:left;
+}
+
+#student-select-view .section-label{
+  display:none!important;
+}
+
+#student-select-view .student-grid{
+  display:flex;
+  flex-direction:column;
+  gap:18px;
+  margin-bottom:24px;
+}
+
+#student-select-view .student-card{
+  position:relative;
+  display:flex;
+  align-items:center;
+  gap:22px;
+  width:100%;
+  min-height:174px;
+  padding:24px 76px 24px 26px;
+  background:#FFFFFF;
+  border:2px solid transparent;
+  border-radius:28px;
+  box-shadow:0 8px 28px rgba(28,37,54,.10);
+  cursor:pointer;
+  text-align:left;
+  transition:
+    transform .18s ease,
+    box-shadow .18s ease,
+    border-color .18s ease,
+    background .18s ease;
+}
+
+#student-select-view .student-card:hover{
+  transform:translateY(-2px);
+  box-shadow:0 12px 32px rgba(28,37,54,.13);
+}
+
+#student-select-view .student-card.selected{
+  border-color:#7B61E8;
+  background:linear-gradient(135deg,#FFFFFF 0%,#F8F5FF 100%);
+  box-shadow:
+    0 10px 30px rgba(123,97,232,.16),
+    0 0 0 1px rgba(123,97,232,.08);
+}
+
+#student-select-view .student-card::after{
+  content:'›';
+  position:absolute;
+  right:24px;
+  top:50%;
+  transform:translateY(-50%);
+  width:54px;
+  height:54px;
+  border-radius:50%;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  background:#F4F0FF;
+  color:#7758DF;
+  font-size:38px;
+  font-weight:700;
+  line-height:1;
+}
+
+#student-select-view .student-avatar{
+  width:108px;
+  height:108px;
+  min-width:108px;
+  margin:0;
+  border-radius:50%;
+  background:linear-gradient(145deg,#EAF2FF,#FFFFFF);
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  flex-shrink:0;
+  font-size:66px;
+  overflow:hidden;
+}
+
+#student-select-view .student-avatar img,
+#student-select-view .student-avatar svg{
+  width:100%;
+  height:100%;
+  object-fit:contain;
+}
+
+#student-select-view .student-row-info{
+  flex:1;
+  min-width:0;
+}
+
+#student-select-view .student-name{
+  margin-bottom:4px;
+  color:#161A2B;
+  font-size:24px;
+  font-weight:900;
+  letter-spacing:-.7px;
+  line-height:1.25;
+}
+
+#student-select-view .student-mood{
+  margin-top:0;
+  color:#7B61E8;
+  font-size:14px;
+  font-weight:800;
+}
+
+#student-select-view .student-progress-row{
+  margin-top:14px;
+  gap:12px;
+}
+
+#student-select-view .student-progress-bar{
+  height:11px;
+  border-radius:999px;
+  background:#EDF0F6;
+}
+
+#student-select-view .student-progress-fill{
+  border-radius:999px;
+  background:linear-gradient(90deg,#7B61E8,#9D86F2);
+}
+
+#student-select-view .student-progress-pct{
+  color:#7658DB;
+  font-size:15px;
+  font-weight:900;
+}
+
+#student-select-view .student-last-access{
+  margin-top:10px;
+  color:#7C8698;
+  font-size:13px;
+}
+
+#student-select-view .settings-btn{
+  top:14px;
+  right:86px;
+  width:32px;
+  height:32px;
+  background:rgba(28,37,54,.06);
+}
+
+#student-select-view .access-complete-badge{
+  top:16px;
+  right:124px;
+}
+
+#student-select-view .selected-checkmark{
+  display:none!important;
+}
+
+/* 부모님/선생님/관리자 버튼은 카드 아래에 차분하게 배치 */
+#student-select-view > .teacher-btn{
+  margin-top:10px;
+  padding:14px 16px;
+  border-radius:16px;
+  background:#FFFFFF;
+  color:var(--ash);
+  text-decoration:none;
+  box-shadow:0 4px 16px rgba(28,37,54,.08);
+  font-size:13px;
+  font-weight:800;
+}
+
+#student-select-view > .teacher-btn:hover{
+  background:#F8FAFE;
+}
+
+@media (max-width:480px){
+  #student-select-view .student-card{
+    min-height:150px;
+    padding:20px 66px 20px 20px;
+    gap:17px;
+    border-radius:24px;
+  }
+
+  #student-select-view .student-avatar{
+    width:90px;
+    height:90px;
+    min-width:90px;
+    font-size:56px;
+  }
+
+  #student-select-view .student-name{
+    font-size:21px;
+  }
+
+  #student-select-view .student-card::after{
+    right:18px;
+    width:48px;
+    height:48px;
+    font-size:34px;
+  }
+}
+
+
+/* 앱 헤더 */
+.app-header{
+  display:flex;
+  align-items:center;
+  gap:16px;
+  margin-bottom:28px;
+}
+.app-header .era-icon{
+  margin:0 !important;
+  flex-shrink:0;
+}
+.app-title-wrap{
+  display:flex;
+  flex-direction:column;
+  justify-content:center;
+}
+.app-title-wrap .title-label{
+  margin:0 !important;
+  font-size:24px;
+  font-weight:900;
+  color:#1C2536;
+}
+.title-sub{
+  margin-top:4px;
+  font-size:14px;
+  color:#8A93A5;
+  font-weight:600;
+}
+
+
+/* 전용 앱 아이콘과 시안형 헤더 */
+#student-select-view .app-header{
+  display:flex;
+  align-items:center;
+  justify-content:flex-start;
+  gap:14px;
+  margin:0 0 38px;
+  text-align:left;
+}
+
+#student-select-view .app-icon{
+  width:64px;
+  height:64px;
+  min-width:64px;
+  border-radius:18px;
+  overflow:hidden;
+  box-shadow:0 8px 22px rgba(61,123,245,.14);
+}
+
+#student-select-view .app-icon svg{
+  display:block;
+  width:64px;
+  height:64px;
+}
+
+#student-select-view .app-title-wrap{
+  display:flex;
+  flex-direction:column;
+  justify-content:center;
+  min-width:0;
+}
+
+#student-select-view .app-title-wrap .title-label{
+  margin:0!important;
+  color:#161A2B;
+  font-size:24px;
+  font-weight:900;
+  letter-spacing:-.6px;
+  line-height:1.2;
+}
+
+#student-select-view .app-title-wrap .title-sub{
+  margin-top:5px;
+  color:#7C8698;
+  font-size:14px;
+  font-weight:600;
+  line-height:1.35;
+}
+
+/* 학생 카드 오른쪽 화살표 완전 제거 */
+#student-select-view .student-card::after{
+  content:none!important;
+  display:none!important;
+}
+
+#student-select-view .student-card-arrow{
+  display:none!important;
+}
+
+/* 화살표 자리였던 오른쪽 여백도 자연스럽게 회수 */
+#student-select-view .student-card{
+  padding-right:26px!important;
+}
+
+#student-select-view .student-row-info{
+  padding-right:0!important;
+}
+
+@media (max-width:480px){
+  #student-select-view .app-header{
+    gap:12px;
+    margin-bottom:32px;
+  }
+
+  #student-select-view .app-icon,
+  #student-select-view .app-icon svg{
+    width:60px;
+    height:60px;
+    min-width:60px;
+  }
+
+  #student-select-view .app-title-wrap .title-label{
+    font-size:21px;
+  }
+
+  #student-select-view .app-title-wrap .title-sub{
+    font-size:12.5px;
+  }
+}
+
+
+/* 학생 설정 아이콘을 카드 맨 오른쪽으로 */
+.student-card{
+  position:relative;
+}
+
+.student-card .settings-btn{
+  position:absolute !important;
+  right:18px !important;
+  top:50% !important;
+  transform:translateY(-50%) !important;
+  width:36px !important;
+  height:36px !important;
+  border-radius:50% !important;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  background:#F3F6FB !important;
+  z-index:5;
+}
+
+.student-card .student-avatar{
+  margin:0 !important;
+}
+
+.student-card .student-row-info{
+  padding-right:56px !important; /* 설정 버튼 공간 */
+}
+
+.student-card .access-complete-badge{
+  right:62px !important;
+}
+
+
+/* 점 3개 메뉴 버튼 */
+.settings-btn{
+  font-size:24px !important;
+  font-weight:700 !important;
+  color:#7C8698 !important;
+  line-height:1;
+}
+.settings-btn:hover{
+  background:#E9EEF8 !important;
+  color:#3D7BF5 !important;
+}
+
+
+/* 이름 옆에 점3개 배치 */
+.student-row-info{
+  position:relative;
+  padding-right:40px !important;
+}
+
+.student-name{
+  display:inline-block;
+  margin-right:8px;
+}
+
+.student-card .settings-btn{
+  position:absolute !important;
+  top:22px !important;
+  right:0 !important;
+  transform:none !important;
+  width:28px !important;
+  height:28px !important;
+  background:transparent !important;
+  box-shadow:none !important;
+  border-radius:50%;
+  font-size:22px !important;
+  color:#7C8698 !important;
+}
+
+.student-card .access-complete-badge{
+  top:54px !important;
+  right:0 !important;
+}
+
+
+/* ==================================================
+   학생 선택 화면 애니메이션
+   레이아웃과 기능은 그대로 유지
+================================================== */
+
+/* 카드가 순서대로 부드럽게 등장 */
+#student-select-view .student-card{
+  opacity:0;
+  transform:translateY(14px) scale(.985);
+  animation:studentCardIn .42s ease forwards;
+  will-change:transform,opacity;
+}
+
+#student-select-view .student-card:nth-child(1){animation-delay:.04s}
+#student-select-view .student-card:nth-child(2){animation-delay:.10s}
+#student-select-view .student-card:nth-child(3){animation-delay:.16s}
+#student-select-view .student-card:nth-child(4){animation-delay:.22s}
+#student-select-view .student-card:nth-child(5){animation-delay:.28s}
+#student-select-view .student-card:nth-child(6){animation-delay:.34s}
+
+/* 카드 터치·클릭 반응 */
+#student-select-view .student-card{
+  transition:
+    transform .16s ease,
+    box-shadow .20s ease,
+    border-color .20s ease,
+    background .20s ease;
+}
+
+#student-select-view .student-card:hover{
+  transform:translateY(-3px);
+}
+
+#student-select-view .student-card:active{
+  transform:scale(.985);
+}
+
+/* 선택된 학생 카드 강조 */
+#student-select-view .student-card.selected{
+  animation:selectedStudentPulse .34s ease;
+}
+
+/* 아바타가 살짝 살아 움직이는 느낌 */
+#student-select-view .student-card:hover .student-avatar{
+  transform:scale(1.04) rotate(-1.5deg);
+}
+
+#student-select-view .student-avatar{
+  transition:transform .20s ease;
+}
+
+/* 세로 점 메뉴 반응 */
+#student-select-view .settings-btn{
+  transition:
+    transform .16s ease,
+    color .16s ease,
+    background .16s ease;
+}
+
+#student-select-view .settings-btn:hover{
+  transform:scale(1.12);
+}
+
+#student-select-view .settings-btn:active{
+  transform:scale(.90);
+}
+
+/* 진행률 바가 자연스럽게 채워짐 */
+#student-select-view .student-progress-fill{
+  transform-origin:left center;
+  animation:progressGrow .65s ease both;
+}
+
+/* 헤더가 살짝 내려오며 등장 */
+#student-select-view .app-header,
+#student-select-view > .era-icon{
+  animation:headerDropIn .45s ease both;
+}
+
+@keyframes studentCardIn{
+  from{
+    opacity:0;
+    transform:translateY(14px) scale(.985);
+  }
+  to{
+    opacity:1;
+    transform:translateY(0) scale(1);
+  }
+}
+
+@keyframes selectedStudentPulse{
+  0%{transform:scale(1)}
+  50%{transform:scale(1.015)}
+  100%{transform:scale(1)}
+}
+
+@keyframes progressGrow{
+  from{transform:scaleX(0)}
+  to{transform:scaleX(1)}
+}
+
+@keyframes headerDropIn{
+  from{
+    opacity:0;
+    transform:translateY(-10px);
+  }
+  to{
+    opacity:1;
+    transform:translateY(0);
+  }
+}
+
+/* 움직임 최소화 설정을 켠 기기에서는 애니메이션 제거 */
+@media (prefers-reduced-motion:reduce){
+  #student-select-view .student-card,
+  #student-select-view .student-avatar,
+  #student-select-view .settings-btn,
+  #student-select-view .student-progress-fill,
+  #student-select-view .app-header,
+  #student-select-view > .era-icon{
+    animation:none!important;
+    transition:none!important;
+    transform:none!important;
+    opacity:1!important;
+  }
+}
+
+
+/* ==================================================
+   추가 애니메이션
+   1) 선택된 학생 카드 테두리 펄스
+   2) 설정 메뉴/팝업이 아래에서 부드럽게 등장
+================================================== */
+
+/* 선택된 학생 카드에 은은한 테두리 펄스 */
+#student-select-view .student-card.selected{
+  position:relative;
+  animation:
+    selectedStudentPulse .34s ease,
+    selectedBorderGlow 1.8s ease-in-out infinite 0.35s;
+}
+
+@keyframes selectedBorderGlow{
+  0%,100%{
+    box-shadow:
+      0 6px 22px rgba(61,123,245,.18),
+      0 0 0 0 rgba(61,123,245,.18);
+  }
+  50%{
+    box-shadow:
+      0 8px 26px rgba(61,123,245,.24),
+      0 0 0 5px rgba(61,123,245,0);
+  }
+}
+
+/* 설정 메뉴와 관련 팝업 등장 효과 */
+.settings-menu-list,
+#mood-picker-overlay .pw-box,
+#avatar-picker-overlay .pw-box,
+#student-settings-overlay .pw-box{
+  transform:translateY(16px) scale(.985);
+  opacity:0;
+}
+
+.pw-overlay.show .settings-menu-list,
+#mood-picker-overlay.show .pw-box,
+#avatar-picker-overlay.show .pw-box,
+#student-settings-overlay.show .pw-box{
+  animation:settingsSheetUp .28s cubic-bezier(.22,.8,.25,1) forwards;
+}
+
+@keyframes settingsSheetUp{
+  from{
+    opacity:0;
+    transform:translateY(16px) scale(.985);
+  }
+  to{
+    opacity:1;
+    transform:translateY(0) scale(1);
+  }
+}
+
+/* 배경 오버레이도 살짝 페이드 */
+.pw-overlay.show{
+  animation:overlayFadeIn .2s ease both;
+}
+
+@keyframes overlayFadeIn{
+  from{background:rgba(0,0,0,0)}
+  to{background:rgba(0,0,0,.6)}
+}
+
+@media (prefers-reduced-motion:reduce){
+  #student-select-view .student-card.selected,
+  .pw-overlay.show,
+  .pw-overlay.show .settings-menu-list,
+  #mood-picker-overlay.show .pw-box,
+  #avatar-picker-overlay.show .pw-box,
+  #student-settings-overlay.show .pw-box{
+    animation:none!important;
+    opacity:1!important;
+    transform:none!important;
+  }
+}
+
+
+/* 학생 선택 카드 크기 살짝 축소 */
+#student-select-view .student-card{
+    min-height: 156px !important;   /* 기존보다 약간 낮게 */
+    padding: 20px 24px !important;
+}
+
+#student-select-view .student-avatar{
+    width: 96px !important;
+    height: 96px !important;
+    min-width: 96px !important;
+    font-size: 60px !important;
+}
+
+@media (max-width:480px){
+    #student-select-view .student-card{
+        min-height:140px !important;
+        padding:18px 20px !important;
+    }
+
+    #student-select-view .student-avatar{
+        width:84px !important;
+        height:84px !important;
+        min-width:84px !important;
+        font-size:52px !important;
+    }
+}
+
+
+/* 카드만 아주 살짝 축소 - 아바타 크기는 유지 */
+#student-select-view .student-card{
+    min-height:150px !important;
+    padding:18px 22px !important;
+}
+
+/* 아바타는 기존 큰 크기 유지 */
+#student-select-view .student-avatar{
+    width:108px !important;
+    height:108px !important;
+    min-width:108px !important;
+}
+
+@media (max-width:480px){
+  #student-select-view .student-card{
+      min-height:144px !important;
+      padding:17px 20px !important;
+  }
+  #student-select-view .student-avatar{
+      width:90px !important;
+      height:90px !important;
+      min-width:90px !important;
+  }
+}
+
+
+
+
+/* 학습 홈 상단 메뉴: 강의 보기 / 스터디플래너 */
+.home-menu-grid{
+  grid-template-columns:repeat(2,minmax(0,1fr)) !important;
+}
+
+.home-menu-grid .menu-tile{
+  width:100%;
+  min-width:0;
+  min-height:88px;
+}
+
+@media (max-width:420px){
+  .home-menu-grid{
+    gap:8px !important;
+  }
+
+  .home-menu-grid .menu-tile{
+    min-height:82px;
+    padding:14px 5px;
+  }
+
+  .home-menu-grid .menu-tile-icon{
+    font-size:21px;
+  }
+
+  .home-menu-grid .menu-tile-label{
+    font-size:11.5px;
+    word-break:keep-all;
+  }
+}
+
+
+/* 학습 화면 헤더도 첫 화면과 같은 위치·아이콘 구성 */
+#learning-home-view .learning-home-header{
+  text-align:left;
+}
+
+#learning-home-view .learning-app-header{
+  display:flex;
+  align-items:center;
+  justify-content:flex-start;
+  gap:14px;
+  margin:0 0 14px;
+  text-align:left;
+}
+
+#learning-home-view .app-icon{
+  width:64px;
+  height:64px;
+  min-width:64px;
+  border-radius:18px;
+  overflow:hidden;
+  box-shadow:0 8px 22px rgba(61,123,245,.14);
+}
+
+#learning-home-view .app-icon svg{
+  display:block;
+  width:64px;
+  height:64px;
+}
+
+#learning-home-view .app-title-wrap{
+  display:flex;
+  flex-direction:column;
+  justify-content:center;
+  min-width:0;
+}
+
+#learning-home-view .app-title-wrap .title-label{
+  margin:0!important;
+  color:#161A2B;
+  font-size:24px;
+  font-weight:900;
+  letter-spacing:-.6px;
+  line-height:1.2;
+}
+
+#learning-home-view .app-title-wrap .title-sub{
+  margin-top:5px;
+  color:#7C8698;
+  font-size:14px;
+  font-weight:600;
+  line-height:1.4;
+}
+
+#learning-home-view .learning-home-subtitle{
+  margin:0 0 16px;
+  text-align:left;
+}
+
+@media (max-width:480px){
+  #learning-home-view .learning-app-header{
+    gap:12px;
+  }
+
+  #learning-home-view .app-icon,
+  #learning-home-view .app-icon svg{
+    width:60px;
+    height:60px;
+    min-width:60px;
+  }
+
+  #learning-home-view .app-title-wrap .title-label{
+    font-size:21px;
+  }
+
+  #learning-home-view .app-title-wrap .title-sub{
+    font-size:12.5px;
+  }
+}
+
+
+/* 과목별 섹션 — 이후 수학 등 다른 과목을 같은 구조로 추가 가능 */
+.subject-section{
+  margin:18px 0 24px;
+  padding:18px;
+  background:#FFFFFF;
+  border:1px solid rgba(61,123,245,.10);
+  border-radius:22px;
+  box-shadow:0 6px 24px rgba(28,37,54,.08);
+}
+
+.subject-section-header{
+  display:flex;
+  align-items:center;
+  gap:13px;
+  margin-bottom:14px;
+  padding-bottom:14px;
+  border-bottom:1px solid rgba(61,123,245,.10);
+}
+
+.subject-section-icon{
+  width:48px;
+  height:48px;
+  min-width:48px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  border-radius:15px;
+  background:linear-gradient(135deg,rgba(61,123,245,.14),rgba(123,97,232,.08));
+  font-size:25px;
+}
+
+.subject-section-header h2{
+  margin:0;
+  color:var(--ash);
+  font-size:19px;
+  font-weight:900;
+  line-height:1.25;
+}
+
+.subject-section-header p{
+  margin:3px 0 0;
+  color:var(--sand);
+  font-size:12px;
+  line-height:1.4;
+}
+
+.subject-section-body .subject-inner-label{
+  margin:14px 0 9px;
+  padding:0 2px;
+}
+
+.subject-section-body .subject-inner-label:first-child{
+  margin-top:2px;
+}
+
+@media (max-width:480px){
+  .subject-section{
+    padding:15px;
+    border-radius:19px;
+  }
+
+  .subject-section-icon{
+    width:44px;
+    height:44px;
+    min-width:44px;
+    font-size:23px;
+  }
+
+  .subject-section-header h2{
+    font-size:18px;
+  }
+}
+
+
+/* 과목 섹션 접기 */
+.subject-section-body{
+  display:none;
+}
+.subject-section.open .subject-section-body{
+  display:block;
+}
+.subject-section-header{
+  cursor:pointer;
+}
+.subject-section-header::after{
+  content:"▸";
+  margin-left:auto;
+  color:#7C8698;
+  font-weight:700;
+  transition:transform .2s;
+}
+.subject-section.open .subject-section-header::after{
+  transform:rotate(90deg);
+}
+
+
+/* 미완료 단원 기본 접기 */
+.incomplete-section-header{
+  justify-content:space-between !important;
+  cursor:pointer;
+  user-select:none;
+}
+#incomplete-section-arrow{
+  color:var(--sand);
+  font-size:16px;
+  transition:transform .2s ease;
+}
+
+
+/* student note button */
+.student-name-row{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.student-actions{display:flex;align-items:center;gap:4px}
+.note-btn{position:relative;width:26px;height:26px;border:none;background:transparent;border-radius:8px;cursor:pointer;font-size:15px;display:flex;align-items:center;justify-content:center}
+.note-btn:hover{background:rgba(61,123,245,.08)}
+.note-badge{display:none;position:absolute;top:-2px;right:-2px;min-width:14px;height:14px;border-radius:50%;background:#F0555C;color:#fff;font-size:9px;font-weight:700;align-items:center;justify-content:center;padding:0 3px}
+
+
+/* 학생 이름 바로 옆 쪽지 + 설정 버튼 */
+#student-select-view .student-name-row{
+  display:flex !important;
+  align-items:center !important;
+  justify-content:flex-start !important;
+  gap:6px !important;
+  width:100%;
+}
+
+#student-select-view .student-actions{
+  display:inline-flex !important;
+  align-items:center !important;
+  gap:2px !important;
+  flex-shrink:0;
+}
+
+#student-select-view .note-btn,
+#student-select-view .settings-btn{
+  position:relative !important;
+  inset:auto !important;
+  top:auto !important;
+  right:auto !important;
+  bottom:auto !important;
+  left:auto !important;
+  transform:none !important;
+  width:30px !important;
+  height:30px !important;
+  min-width:30px !important;
+  margin:0 !important;
+  padding:0 !important;
+  border:0 !important;
+  border-radius:9px !important;
+  background:transparent !important;
+  box-shadow:none !important;
+  display:inline-flex !important;
+  align-items:center !important;
+  justify-content:center !important;
+  cursor:pointer;
+  z-index:3;
+  line-height:1 !important;
+  font-family:inherit;
+  -webkit-tap-highlight-color:transparent;
+}
+
+#student-select-view .note-btn{
+  font-size:15px !important;
+}
+
+#student-select-view .settings-btn{
+  font-size:21px !important;
+  font-weight:800 !important;
+  color:#7C8698 !important;
+}
+
+#student-select-view .note-btn:hover,
+#student-select-view .settings-btn:hover{
+  background:rgba(61,123,245,.08) !important;
+}
+
+#student-select-view .note-btn:active,
+#student-select-view .settings-btn:active{
+  transform:scale(.9) !important;
+}
+
+#student-select-view .note-badge{
+  display:none;
+  position:absolute;
+  top:1px;
+  right:1px;
+  min-width:7px;
+  height:7px;
+  padding:0;
+  border-radius:999px;
+  background:#F0555C;
+  border:1.5px solid #FFFFFF;
+}
+
+/* 접속완료 배지는 이름 버튼과 겹치지 않게 유지 */
+#student-select-view .access-complete-badge{
+  right:16px !important;
+  top:10px !important;
+}
+
+
+/* 모바일 학생 선택 카드 15% 추가 축소 */
+@media (max-width:480px){
+  .student-grid{
+    gap:10px !important;
+  }
+
+  .student-card{
+    min-height:121px !important;
+    padding:11px 13px !important;
+    gap:12px !important;
+    border-radius:19px !important;
+  }
+
+  /* 아바타 크기는 유지 */
+  .student-avatar{
+    width:72px !important;
+    height:72px !important;
+    min-width:72px !important;
+    margin:0 !important;
+  }
+
+  .student-progress-row{
+    margin-top:6px !important;
+  }
+
+  .student-last-access{
+    margin-top:4px !important;
+  }
+}
+
+
+/* 모바일 학생카드 초슬림 */
+@media (max-width:480px){
+  body{padding:8px !important;}
+  .container{max-width:100% !important;padding:0 2px !important;}
+  #start-screen{padding:0 2px !important;}
+  .student-grid{gap:6px !important;margin-bottom:14px !important;}
+  .student-card{
+    min-height:96px !important;
+    padding:8px 8px !important;
+    gap:10px !important;
+    border-radius:18px !important;
+  }
+  .student-row-info{padding-right:2px !important;}
+  .student-name{font-size:16px !important;}
+  .student-mood{margin-top:0 !important;font-size:10px !important;}
+  .student-progress-row{margin-top:3px !important;}
+  .student-last-access{margin-top:2px !important;font-size:10px !important;}
+}
+
+
+.message-overlay{position:fixed;inset:0;background:rgba(15,23,42,.48);display:none;align-items:center;justify-content:center;z-index:9999;padding:14px}
+.message-overlay.show{display:flex}
+.message-box{width:min(94vw,430px);height:min(82vh,650px);background:#F4F7FC;border-radius:22px;box-shadow:0 24px 60px rgba(15,23,42,.24);overflow:hidden;display:flex;flex-direction:column}
+.message-head{display:flex;align-items:center;gap:10px;padding:16px 18px;background:#fff;border-bottom:1px solid rgba(124,134,152,.14)}
+.message-head-avatar{width:38px;height:38px;border-radius:50%;background:rgba(61,123,245,.12);display:flex;align-items:center;justify-content:center;font-size:20px}
+.message-head-title{flex:1;min-width:0}
+.message-head h3{font-size:16px;color:#1C2536;margin:0}
+.message-head-sub{font-size:11px;color:#7C8698;margin-top:2px}
+.message-close{cursor:pointer;font-size:24px;color:#7C8698;width:32px;height:32px;border-radius:50%;display:flex;align-items:center;justify-content:center}
+.message-close:hover{background:rgba(61,123,245,.08);color:#1C2536}
+.message-list{flex:1;overflow-y:auto;padding:18px 14px;display:flex;flex-direction:column;gap:10px;scroll-behavior:smooth}
+.chat-row{display:flex;flex-direction:column;max-width:82%}
+.chat-row.teacher{align-self:flex-start;align-items:flex-start}
+.chat-row.student{align-self:flex-end;align-items:flex-end}
+.chat-sender{font-size:10px;color:#7C8698;font-weight:700;margin:0 6px 4px}
+.chat-bubble{padding:10px 13px;border-radius:16px;font-size:13px;line-height:1.55;word-break:break-word;white-space:pre-wrap;box-shadow:0 2px 8px rgba(61,123,245,.06)}
+.chat-row.teacher .chat-bubble{background:#fff;color:#1C2536;border-top-left-radius:5px}
+.chat-row.student .chat-bubble{background:#3D7BF5;color:#fff;border-top-right-radius:5px}
+.chat-time{font-size:9px;color:#A9B2C3;margin:4px 5px 0}
+.message-empty{text-align:center;color:#7C8698;font-size:12px;padding:40px 10px;line-height:1.7}
+.message-reply-wrap{display:flex;align-items:flex-end;gap:8px;padding:12px;background:#fff;border-top:1px solid rgba(124,134,152,.14)}
+.message-reply-input{flex:1;min-height:42px;max-height:110px;resize:none;border:1.5px solid rgba(124,134,152,.22);border-radius:14px;padding:10px 12px;font:inherit;font-size:13px;line-height:1.45;color:#1C2536;background:#F8FAFD;outline:none}
+.message-reply-input:focus{border-color:#3D7BF5;background:#fff}
+.message-send-btn{width:44px;height:44px;flex-shrink:0;border:none;border-radius:14px;background:#3D7BF5;color:#fff;font-size:18px;cursor:pointer;box-shadow:0 4px 12px rgba(61,123,245,.25)}
+.message-send-btn:disabled{opacity:.45;cursor:default;box-shadow:none}
+.message-backend-note{text-align:center;color:#A9B2C3;font-size:9px;padding:0 12px 9px;background:#fff}
+@media(max-width:480px){
+  .message-overlay{padding:0;align-items:flex-end}
+  /* 입력 시 키보드가 떠도 채팅창 자체 크기가 갑자기 확대되지 않도록 고정 */
+  .message-box{
+    width:100%;
+    height:78svh;
+    max-height:620px;
+    min-height:420px;
+    border-radius:22px 22px 0 0;
+  }
+  /* iPhone에서 16px 미만 입력창을 자동 확대하는 현상 방지 */
+  .message-reply-input{
+    font-size:16px;
+  }
+}
+
+
+/* 쪽지 버튼은 학습화면의 학생 이름 옆에서만 표시 */
+.learning-name-message-row{
+  display:flex;
+  align-items:center;
+  gap:7px;
+}
+.learning-name-mail-btn{
+  position:relative;
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  width:28px;
+  height:28px;
+  border:0;
+  border-radius:9px;
+  background:transparent;
+  cursor:pointer;
+  font-size:17px;
+  line-height:1;
+  transition:background .15s, transform .15s;
+  -webkit-tap-highlight-color:transparent;
+}
+.learning-name-mail-btn:hover{background:rgba(61,123,245,.08)}
+.learning-name-mail-btn:active{transform:scale(.92)}
+.learning-name-mail-badge{
+  position:absolute;
+  top:-3px;
+  right:-5px;
+  min-width:15px;
+  height:15px;
+  padding:0 3px;
+  border-radius:999px;
+  background:#F0555C;
+  color:#fff;
+  border:1.5px solid #fff;
+  font-size:9px;
+  font-weight:900;
+  display:none;
+  align-items:center;
+  justify-content:center;
+}
+
+
+.message-role-badge{
+  display:none;
+  align-items:center;
+  gap:4px;
+  width:max-content;
+  margin-top:5px;
+  padding:3px 8px;
+  border-radius:999px;
+  background:rgba(61,123,245,.10);
+  color:#3D7BF5;
+  font-size:10px;
+  font-weight:800;
+}
+.message-role-badge.show{display:inline-flex}
+
+
+.msg-delete-btn{
+position:absolute;top:6px;right:6px;border:none;background:transparent;cursor:pointer;
+font-size:13px;opacity:.7}
+.msg-delete-btn:hover{opacity:1;transform:scale(1.1)}
+
+
+/* ===== 역대 왕 계보 ===== */
+#king-order-screen{display:none;animation:fadeIn .4s ease}
+.king-order-header{text-align:center;margin-bottom:18px}
+.king-order-header h2{color:var(--ash);font-size:22px;font-weight:900;margin-bottom:6px}
+.king-order-header p{color:var(--sand);font-size:13px;line-height:1.6}
+.king-era-grid{display:grid;gap:10px;margin-bottom:18px}
+.king-era-card{width:100%;display:flex;align-items:center;gap:12px;border:none;border-radius:18px;padding:15px;background:#fff;box-shadow:0 3px 14px rgba(61,123,245,.10);cursor:pointer;text-align:left}
+.king-era-card.done{outline:2px solid rgba(52,199,123,.35)}
+.king-era-icon{width:44px;height:44px;border-radius:14px;background:rgba(61,123,245,.09);display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0}
+.king-era-main{flex:1;display:flex;flex-direction:column;gap:3px;color:var(--ash)}
+.king-era-main b{font-size:15px}.king-era-main small{font-size:11px;color:var(--sand)}
+.king-era-status{font-size:11px;font-weight:900;color:var(--ember)}
+.king-order-empty{background:#fff;border-radius:18px;padding:28px 18px;text-align:center;color:var(--sand);line-height:1.8;box-shadow:0 3px 14px rgba(61,123,245,.10)}
+.king-stage-tabs{display:flex;gap:5px;overflow-x:auto;margin:0 0 14px;padding-bottom:3px}
+.king-stage-tabs span{white-space:nowrap;font-size:10px;font-weight:800;color:#8a94a6;background:#eef2f8;border-radius:999px;padding:6px 9px}
+.king-stage-tabs span.active{background:var(--ember);color:#fff}
+.king-sequence-list{display:grid;gap:8px}
+.king-sequence-item{display:flex;align-items:flex-start;gap:10px;background:#fff;border:1px solid rgba(61,123,245,.10);border-radius:14px;padding:12px}
+.king-sequence-item.core{border-color:rgba(212,166,42,.55);background:#fffaf0}
+.king-number{width:28px;height:28px;border-radius:50%;background:#eef3ff;color:var(--ember);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:900;flex-shrink:0}
+.king-sequence-item b{display:block;color:var(--ash);font-size:14px}.king-sequence-item small{display:block;color:var(--sand);font-size:11px;line-height:1.55;margin-top:3px}
+.king-page-info{text-align:center;color:var(--sand);font-size:11px;font-weight:800;margin:12px 0}
+.king-actions{display:flex;gap:8px;margin-top:12px}.king-actions>*{flex:1}
+.king-primary,.king-secondary{border:none;border-radius:13px;padding:13px 14px;font:inherit;font-size:13px;font-weight:900;cursor:pointer}
+.king-primary{background:var(--ember);color:#fff}.king-secondary{background:#eef2f8;color:var(--ash)}
+.king-primary.full,.king-secondary.full{width:100%;margin-top:10px}
+.king-source{text-align:center;color:#9aa2b0;font-size:9px;margin-top:14px}
+.king-core-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}
+.king-core-card{background:#fff;border:1px solid rgba(212,166,42,.35);border-radius:15px;padding:14px;box-shadow:0 2px 10px rgba(61,123,245,.07)}
+.king-core-card b{color:var(--ember);font-size:14px}.king-core-card p{color:var(--ash);font-size:11px;line-height:1.6;margin-top:7px}
+.king-copy-card,.king-quiz-card,.king-result-card{background:#fff;border-radius:18px;padding:18px;box-shadow:0 3px 14px rgba(61,123,245,.10)}
+.king-copy-target{font-size:14px;font-weight:900;line-height:1.9;color:var(--ash);background:#fff9e8;border-radius:12px;padding:13px;margin-bottom:12px}
+.king-copy-input{width:100%;border:1.5px solid #dfe5ef;border-radius:12px;padding:12px;font:inherit;font-size:14px;line-height:1.6;resize:vertical}.king-copy-input.wrong{border-color:#F0555C}
+.king-copy-feedback,.king-quiz-feedback{display:none;min-height:20px;margin:10px 0;color:#d33d45;font-size:12px;font-weight:800;text-align:center;line-height:1.5}.king-copy-feedback.show,.king-quiz-feedback.show{display:block}
+.king-quiz-card>p{color:var(--ash);font-size:16px;font-weight:900;line-height:1.65;text-align:center;margin-bottom:15px}
+.king-option-grid{display:grid;gap:8px}.king-option-grid button,.king-order-pool button{border:none;border-radius:12px;padding:12px;background:#eef3ff;color:var(--ash);font:inherit;font-size:13px;font-weight:800;cursor:pointer}.king-option-grid button:disabled{opacity:.7}
+.king-selected-row{min-height:74px;background:#fff9e8;border:1px dashed rgba(212,166,42,.65);border-radius:14px;padding:10px;display:flex;flex-wrap:wrap;gap:6px;align-content:flex-start;margin-bottom:12px}
+.king-selected-row span{background:#fff;border-radius:999px;padding:7px 10px;color:var(--ash);font-size:11px;font-weight:800}.king-selected-row small{margin:auto;color:var(--sand)}
+.king-order-pool{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+.king-result-card{text-align:center;color:var(--ash);line-height:1.7}.king-result-icon{font-size:48px;margin-bottom:6px}
+@media(max-width:420px){.king-core-grid{grid-template-columns:1fr}}
+
+/* ===== 지도 문제 ===== */
+#map-study-list-screen,#map-study-quiz-screen{display:none;animation:fadeIn .4s ease}
+.map-study-header{text-align:center;margin-bottom:18px}
+.map-study-header h2{color:var(--ash);font-size:22px;font-weight:900;margin-bottom:6px}
+.map-study-header p{color:var(--sand);font-size:13px;line-height:1.6}
+.map-part-list{display:flex;flex-direction:column;gap:10px;margin-bottom:18px}
+.map-part-card{display:flex;align-items:center;gap:12px;background:#fff;border:none;border-radius:18px;padding:16px;box-shadow:0 3px 14px rgba(61,123,245,.10);cursor:pointer;text-align:left}
+.map-part-card:hover{transform:translateY(-1px);box-shadow:0 5px 18px rgba(61,123,245,.16)}
+.map-part-icon{width:46px;height:46px;border-radius:15px;background:rgba(61,123,245,.10);display:flex;align-items:center;justify-content:center;font-size:23px;flex-shrink:0}
+.map-part-info{flex:1}
+.map-part-title{color:var(--ash);font-size:14px;font-weight:900}
+.map-part-sub{color:var(--sand);font-size:11px;margin-top:3px}
+.map-part-score{font-size:11px;font-weight:800;color:var(--ember)}
+.map-quiz-card{background:#fff;border-radius:20px;padding:20px;box-shadow:0 4px 18px rgba(61,123,245,.12)}
+.map-quiz-top{display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;color:var(--sand);font-size:12px;font-weight:700}
+.map-question{color:var(--ash);font-size:18px;font-weight:900;line-height:1.5;margin-bottom:16px;text-align:center}
+.map-options{display:grid;gap:9px}
+.map-option{border:none;border-radius:14px;padding:13px 14px;background:#f5f8ff;color:var(--ash);font:inherit;font-size:14px;font-weight:700;cursor:pointer;text-align:left}
+.map-option:hover{background:#eaf1ff}
+.map-option.correct{background:rgba(52,199,123,.14);color:#16854b}
+.map-option.wrong{background:rgba(240,85,92,.12);color:#d33d45}
+.korea-map{position:relative;width:min(100%,360px);height:440px;margin:0 auto 16px;background:linear-gradient(180deg,#dff1ff 0%,#eef8ff 58%,#d8efff 100%);border-radius:22px;border:2px solid rgba(61,123,245,.16);overflow:hidden;box-shadow:inset 0 0 28px rgba(61,123,245,.08)}
+.korea-map-svg{position:absolute;inset:0;width:100%;height:100%;z-index:0}
+.korea-map-label{font-size:9px;font-weight:800;fill:#5f6f86;paint-order:stroke;stroke:#fff;stroke-width:3px;stroke-linejoin:round}
+.korea-map-city{fill:#F0555C;stroke:#fff;stroke-width:1.7}
+.korea-map-river{fill:none;stroke:#5aa9e6;stroke-width:2.2;stroke-linecap:round;opacity:.9}
+.korea-map-mountain{fill:none;stroke:#8a9a5b;stroke-width:2;stroke-dasharray:3 4;opacity:.75}
+.korea-map-boundary{fill:#f7f2df;stroke:#697b8f;stroke-width:2.4;stroke-linejoin:round}
+.korea-map-north{fill:#e8dfc2;stroke:#697b8f;stroke-width:2}
+.korea-map-sea-label{font-size:10px;font-weight:800;fill:#72a7c8;opacity:.8}
+.map-zone{position:absolute;border:1px solid rgba(61,123,245,.18);border-radius:999px;padding:7px 9px;background:rgba(255,255,255,.93);box-shadow:0 2px 9px rgba(61,123,245,.18);font-size:10px;font-weight:900;color:var(--ash);cursor:pointer;z-index:2;backdrop-filter:blur(2px)}
+.map-zone:hover{transform:scale(1.06)}
+.map-zone.correct{background:#34C77B;color:#fff}
+.map-zone.wrong{background:#F0555C;color:#fff}
+.map-feedback{min-height:42px;margin-top:12px;border-radius:12px;padding:10px 12px;font-size:13px;line-height:1.5;display:none}
+.map-feedback.show{display:block}
+.map-feedback.good{background:rgba(52,199,123,.12);color:#16854b}
+.map-feedback.bad{background:rgba(240,85,92,.10);color:#d33d45}
+.map-next-btn{width:100%;margin-top:12px;border:none;border-radius:14px;padding:14px;background:var(--ember);color:#fff;font:inherit;font-weight:900;cursor:pointer;display:none}
+.map-result{text-align:center;padding:18px 8px}
+.map-result .score{font-size:42px;font-weight:900;color:var(--ember)}
+.map-result .pass{font-size:17px;font-weight:900;margin:8px 0 4px;color:#1E9A5C}
+.map-admin-note{display:none;background:rgba(61,123,245,.08);color:var(--ember);font-size:12px;font-weight:800;padding:9px 12px;border-radius:12px;margin-bottom:12px;text-align:center}
+
+
+/* ===== 지도 확인학습 ===== */
+#map-study-learn-screen{display:none;animation:fadeIn .4s ease}
+.map-learn-card{background:#fff;border-radius:20px;padding:20px;box-shadow:0 4px 18px rgba(61,123,245,.12)}
+.map-learn-head{text-align:center;margin-bottom:14px}
+.map-learn-head h3{color:var(--ash);font-size:19px;font-weight:900;margin-bottom:5px}
+.map-learn-head p{color:var(--sand);font-size:12px;line-height:1.6}
+.map-learn-tabs{display:flex;flex-wrap:wrap;gap:7px;justify-content:center;margin:12px 0 14px}
+.map-learn-tab{border:none;border-radius:999px;padding:8px 11px;background:#eef4ff;color:var(--ash);font:inherit;font-size:11px;font-weight:900;cursor:pointer}
+.map-learn-tab.active{background:var(--ember);color:#fff}
+.map-learn-explain{min-height:70px;background:rgba(61,123,245,.06);border-radius:14px;padding:13px 14px;color:var(--ash);font-size:13px;line-height:1.65;margin-bottom:12px}
+.map-learn-actions{display:flex;gap:8px;margin-top:12px}
+.map-learn-actions button{flex:1;border:none;border-radius:14px;padding:13px;font:inherit;font-weight:900;cursor:pointer}
+.map-learn-hide{background:#eef2f8;color:var(--ash)}
+.map-learn-start{background:var(--ember);color:#fff}
+.map-study-map .map-zone{font-size:9px;padding:6px 8px}
+.map-zone.learn-highlight{background:var(--ember)!important;color:#fff!important;transform:translate(-50%,-50%) scale(1.12)!important}
+.map-zone.learn-muted{opacity:.45}
+
+/* ===== 스터디플래너 ===== */
+.study-planner-overlay{position:fixed;inset:0;background:rgba(20,31,50,.58);display:none;align-items:center;justify-content:center;padding:18px;z-index:3000}
+.study-planner-overlay.show{display:flex}
+.study-planner-box{width:min(100%,620px);max-height:88vh;overflow:auto;background:var(--stone);border-radius:24px;padding:20px;box-shadow:0 20px 60px rgba(20,31,50,.28)}
+.study-planner-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:16px}
+.study-planner-head h2{font-size:20px;color:var(--ash);margin:0 0 4px}
+.study-planner-head p{font-size:12px;color:var(--sand);margin:0}
+.study-planner-close{border:none;background:#fff;width:34px;height:34px;border-radius:50%;font-size:18px;cursor:pointer;color:var(--ash)}
+.study-planner-date-row{display:flex;gap:8px;align-items:center;margin-bottom:14px}
+.study-planner-date{flex:1;border:1.5px solid #dbe4f2;background:#fff;border-radius:12px;padding:11px 12px;font:inherit;color:var(--ash)}
+.study-planner-today{border:none;border-radius:12px;padding:11px 13px;background:rgba(61,123,245,.10);color:var(--ember);font:inherit;font-weight:800;cursor:pointer}
+.study-planner-input-row{display:grid;grid-template-columns:1fr auto;gap:8px;margin-bottom:14px}
+.study-planner-input,.study-planner-status{border:1.5px solid #dbe4f2;background:#fff;border-radius:12px;padding:11px 12px;font:inherit;color:var(--ash)}
+.study-planner-add{border:none;border-radius:12px;padding:11px 15px;background:var(--ember);color:#fff;font:inherit;font-weight:900;cursor:pointer}
+.study-planner-list{display:flex;flex-direction:column;gap:9px}
+.study-planner-empty{text-align:center;padding:28px 10px;color:var(--sand);font-size:13px}
+.study-plan-item{display:flex;align-items:center;gap:10px;background:#fff;border-radius:15px;padding:12px 13px;box-shadow:0 2px 10px rgba(61,123,245,.08)}
+.study-plan-status-dot{width:11px;height:11px;border-radius:50%;flex-shrink:0}
+.study-plan-status-dot.doing{background:#FFB703}.study-plan-status-dot.done{background:#34C77B}.study-plan-status-dot.missed{background:#F0555C}
+.study-plan-main{flex:1;min-width:0}
+.study-plan-text{font-size:13px;font-weight:800;color:var(--ash);word-break:break-word}
+.study-plan-meta{font-size:10px;color:var(--sand);margin-top:3px}
+.study-plan-controls{display:flex;gap:5px;align-items:center}
+.study-plan-select{border:1px solid #dbe4f2;border-radius:9px;padding:6px 7px;background:#fff;font:inherit;font-size:11px;color:var(--ash)}
+.study-plan-delete{border:none;border-radius:9px;padding:7px 9px;background:rgba(240,85,92,.09);color:var(--wrong);font:inherit;font-size:11px;font-weight:800;cursor:pointer}
+.study-planner-admin-note{display:none;background:rgba(61,123,245,.08);color:var(--ember);border-radius:11px;padding:9px 11px;font-size:11px;font-weight:800;margin-bottom:12px;text-align:center}
+.study-planner-summary{display:flex;gap:8px;margin-bottom:12px}
+.study-planner-summary span{flex:1;background:#fff;border-radius:11px;padding:9px;text-align:center;font-size:11px;color:var(--sand)}
+.study-planner-summary b{display:block;font-size:16px;color:var(--ash);margin-bottom:2px}
+@media(max-width:520px){
+  .study-planner-input-row{grid-template-columns:1fr auto}
+  .study-planner-add{grid-column:auto}
+  .study-plan-item{align-items:flex-start}
+  .study-plan-controls{flex-direction:column;align-items:stretch}
+}
+
+
+/* ===== 스터디플래너 자동 학습기록 ===== */
+.study-auto-section{margin-top:18px;padding-top:16px;border-top:1px solid #dfe6f1}
+.study-auto-title{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
+.study-auto-title h3{font-size:14px;color:var(--ash);margin:0}
+.study-auto-title span{font-size:10px;color:var(--sand)}
+.study-auto-list{display:flex;flex-direction:column;gap:8px}
+.study-auto-item{display:flex;align-items:center;gap:10px;background:rgba(52,199,123,.07);border-radius:13px;padding:10px 12px}
+.study-auto-icon{font-size:18px}
+.study-auto-main{flex:1;min-width:0}
+.study-auto-text{font-size:12px;font-weight:800;color:var(--ash);word-break:break-word}
+.study-auto-meta{font-size:10px;color:var(--sand);margin-top:3px}
+.study-auto-badge{font-size:10px;font-weight:900;color:#16854b;background:rgba(52,199,123,.14);border-radius:999px;padding:4px 7px}
+
+
+
+.study-auto-group-title{
+  margin:12px 2px 6px;
+  color:var(--ash);
+  font-size:12px;
+  font-weight:900;
+}
+.study-auto-group-title:first-child{margin-top:0}
+
+/* ===== 집중모드: 문제풀이 가능한 상단 바 방식 ===== */
+.focus-start-btn{width:100%;border:none;border-radius:14px;padding:13px 16px;background:linear-gradient(135deg,#3D7BF5,#6F9DFF);color:#fff;font-size:14px;font-weight:900;font-family:inherit;cursor:pointer;box-shadow:0 4px 14px rgba(61,123,245,.24);margin:8px 0 10px}
+.focus-start-btn.active{background:linear-gradient(135deg,#1E9A5C,#34C77B)}
+.focus-topbar{position:fixed;top:10px;left:50%;transform:translateX(-50%);z-index:2500;width:min(94vw,680px);display:none;align-items:center;gap:10px;background:rgba(28,37,54,.96);color:#fff;border-radius:16px;padding:10px 12px;box-shadow:0 10px 28px rgba(28,37,54,.28);backdrop-filter:blur(10px)}
+.focus-topbar.show{display:flex}
+.focus-topbar-main{display:flex;align-items:center;gap:9px;min-width:0;flex:1}
+.focus-topbar-icon{font-size:20px;flex-shrink:0}
+.focus-topbar-text{min-width:0}
+.focus-topbar-title{font-size:12px;font-weight:900;white-space:nowrap}
+.focus-topbar-meta{font-size:10px;color:rgba(255,255,255,.72);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.focus-topbar-timer{font-size:20px;font-weight:900;font-variant-numeric:tabular-nums;white-space:nowrap}
+.focus-topbar-actions{display:flex;gap:6px}
+.focus-topbar-btn{border:none;border-radius:10px;padding:8px 10px;font-family:inherit;font-size:11px;font-weight:800;cursor:pointer}
+.focus-topbar-btn.end{background:#F0555C;color:#fff}
+.focus-return-box{position:fixed;inset:0;z-index:3100;background:rgba(17,25,42,.72);display:none;align-items:center;justify-content:center;padding:20px}
+.focus-return-box.show{display:flex}
+.focus-return-card{width:100%;max-width:350px;background:#fff;border-radius:20px;padding:24px;text-align:center}
+.focus-return-card h3{color:#1C2536;font-size:19px;margin-bottom:8px}
+.focus-return-card p{color:#7C8698;font-size:13px;line-height:1.6;margin-bottom:16px}
+body.focus-mode-active{padding-top:82px}
+body.focus-mode-active .learning-name-mail-btn,
+body.focus-mode-active #font-picker-btn,
+body.focus-mode-active #sound-toggle-btn,
+body.focus-mode-active .settings-btn{display:none!important}
+@media(max-width:520px){
+  .focus-topbar{top:6px;padding:9px 10px;gap:7px}
+  .focus-topbar-timer{font-size:17px}
+  .focus-topbar-btn{padding:7px 8px;font-size:10px}
+  .focus-topbar-meta{max-width:150px}
+  body.focus-mode-active{padding-top:76px}
+}
+
+
+/* ===== 개발용 TEST USER 테스트모드 ===== */
+#developer-test-banner{
+  position:sticky;top:0;z-index:2600;display:none;
+  background:#F2B705;color:#352B00;text-align:center;
+  padding:9px 12px;font-size:12px;font-weight:900;
+  border-radius:0 0 12px 12px;margin-bottom:10px;cursor:pointer;
+  box-shadow:0 4px 14px rgba(242,183,5,.25)
+}
+#developer-test-banner.show{display:block}
+.developer-test-btn{color:#B27A00!important;position:relative;z-index:10;pointer-events:auto!important}
+.developer-test-login-overlay{position:fixed;inset:0;z-index:4000;background:rgba(17,25,42,.72);display:none;align-items:center;justify-content:center;padding:20px}
+.developer-test-login-overlay.show{display:flex}
+.developer-test-login-box{width:100%;max-width:340px;background:#fff;border-radius:20px;padding:24px;text-align:center;box-shadow:0 24px 70px rgba(0,0,0,.3)}
+.developer-test-login-box h3{color:var(--ash);font-size:18px;margin-bottom:8px}
+.developer-test-login-box p{color:var(--sand);font-size:12px;line-height:1.6;margin-bottom:14px}
+.developer-test-login-input{width:100%;border:1.5px solid rgba(150,148,180,.25);border-radius:12px;padding:13px 14px;font-size:18px;text-align:center;letter-spacing:3px;font-family:inherit;outline:none;margin-bottom:8px}
+.developer-test-login-input:focus{border-color:var(--ember)}
+.developer-test-login-error{min-height:18px;color:var(--wrong);font-size:12px;margin-bottom:8px}
+.developer-test-login-actions{display:flex;gap:8px}
+.developer-test-login-actions button{flex:1;border:none;border-radius:12px;padding:12px;font-family:inherit;font-size:13px;font-weight:800;cursor:pointer}
+.developer-test-login-cancel{background:#EEF3FC;color:var(--ash)}
+.developer-test-login-confirm{background:#F2B705;color:#352B00}
+
+
+
+
+/* ===== 부모님 자녀 학습화면 보기 ===== */
+.parent-child-view-bar{
+  display:flex;align-items:center;justify-content:space-between;gap:10px;
+  background:rgba(61,123,245,.10);border-radius:14px;padding:11px 13px;
+  margin:0 0 14px;color:var(--ash);font-size:12px;font-weight:800
+}
+.parent-child-view-bar button{
+  border:none;border-radius:10px;padding:8px 10px;background:var(--ember);
+  color:#fff;font-family:inherit;font-size:11px;font-weight:800;cursor:pointer
+}
+.parent-view-hidden{display:none!important}
+.parent-view-readonly-note{
+  margin:8px 0 14px;padding:10px 12px;border-radius:12px;
+  background:rgba(52,199,123,.08);color:#16854b;font-size:11px;font-weight:700
+}
+
+
+/* ===== 부모님 화면 미완료 학습 잠금 ===== */
+.parent-unit-locked{
+  opacity:.62!important;
+  position:relative;
+  cursor:not-allowed!important;
+  background:rgba(124,134,152,.08)!important;
+}
+.parent-unit-locked::before{
+  content:'🔒 미완료';
+  position:absolute;
+  top:10px;
+  right:12px;
+  z-index:4;
+  padding:4px 8px;
+  border-radius:999px;
+  background:rgba(28,37,54,.82);
+  color:#fff;
+  font-size:10px;
+  font-weight:900;
+}
+.parent-incomplete-locked [data-action="resume-learning"],
+.parent-incomplete-locked .ht-part-btn{
+  pointer-events:none!important;
+  opacity:.55!important;
+}
+.parent-incomplete-lock-note{
+  color:var(--sand);
+  font-size:11px;
+  font-weight:700;
+  margin:6px 2px 10px;
+}
+
+
+/* ===== 선생님 문제 공개 관리 ===== */
+.content-approval-panel{
+  margin:16px 0;padding:14px;border-radius:16px;
+  background:rgba(61,123,245,.07);border:1px solid rgba(61,123,245,.16)
+}
+.content-approval-title{
+  display:flex;align-items:center;justify-content:space-between;gap:10px;
+  font-size:14px;font-weight:900;color:var(--ash);cursor:pointer
+}
+.content-approval-sub{font-size:11px;color:var(--sand);margin-top:5px;line-height:1.5}
+.content-approval-body{display:none;margin-top:12px}
+.content-approval-body.open{display:block}
+.content-approval-group{margin-top:12px}
+.content-approval-group:first-child{margin-top:0}
+.content-approval-group-title{font-size:12px;font-weight:900;color:var(--clay);margin-bottom:7px}
+.content-approval-row{
+  display:flex;align-items:center;justify-content:space-between;gap:10px;
+  padding:9px 10px;background:#fff;border-radius:11px;margin-bottom:6px;
+  border:1px solid rgba(30,45,70,.08)
+}
+.content-approval-label{font-size:12px;font-weight:800;color:var(--ash);min-width:0}
+.content-approval-switch{
+  border:none;border-radius:999px;padding:6px 10px;min-width:68px;
+  font-family:inherit;font-size:11px;font-weight:900;cursor:pointer
+}
+.content-approval-switch.open{background:rgba(52,199,123,.14);color:#13854b}
+.content-approval-switch.closed{background:rgba(120,130,150,.15);color:#667085}
+.content-approval-actions{display:flex;gap:8px;margin-top:10px}
+.content-approval-actions button{
+  flex:1;border:none;border-radius:10px;padding:9px;font-family:inherit;
+  font-size:11px;font-weight:900;cursor:pointer
+}
+.content-lock-badge{
+  margin-left:auto;padding:4px 8px;border-radius:999px;
+  background:rgba(80,90,110,.13);color:#677080;font-size:10px;font-weight:900
+}
+.unit-card.teacher-locked-content{opacity:.58;cursor:not-allowed}
+
+
+/* ===== 역사총정리 ===== */
+.history-summary-divider{margin:24px 0 12px;padding-top:18px;border-top:2px dashed rgba(61,123,245,.18)}
+.history-summary-heading{font-size:15px;font-weight:900;color:var(--ash);margin-bottom:10px}
+.history-summary-card{background:linear-gradient(135deg,#fff,rgba(61,123,245,.05));border:1.5px solid rgba(61,123,245,.18);border-radius:18px;padding:16px;display:flex;align-items:center;gap:12px;cursor:pointer;box-shadow:0 3px 14px rgba(61,123,245,.10)}
+.history-summary-card.done{background:rgba(52,199,123,.07);border-color:rgba(52,199,123,.28)}
+.history-summary-icon{font-size:30px}
+.history-summary-info{flex:1;min-width:0}
+.history-summary-info b{display:block;font-size:14px;color:var(--ash);margin-bottom:4px}
+.history-summary-info span{font-size:11px;color:var(--sand)}
+.history-summary-btn{border:none;border-radius:12px;background:var(--ember);color:#fff;padding:9px 12px;font-family:inherit;font-size:11px;font-weight:900;cursor:pointer}
+#history-summary-screen{display:none;animation:fadeIn .4s ease}
+.history-summary-header{position:sticky;top:0;z-index:5;background:rgba(244,247,252,.96);backdrop-filter:blur(8px);padding:8px 0 12px;margin-bottom:10px}
+.history-summary-title-row{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.history-summary-title{font-size:20px;font-weight:900;color:var(--ash)}
+.history-summary-sub{font-size:12px;color:var(--sand);margin-top:4px}
+.history-summary-flow-btn{border:none;border-radius:999px;background:rgba(61,123,245,.11);color:var(--ember);padding:8px 11px;font-family:inherit;font-size:11px;font-weight:900;cursor:pointer;white-space:nowrap}
+.history-summary-flow{display:none;background:#fff;border:1px solid rgba(61,123,245,.15);border-radius:16px;padding:14px;margin:10px 0 14px;text-align:center;color:var(--ash);font-size:12px;font-weight:800;line-height:1.9}
+.history-summary-flow.open{display:block}
+.history-summary-reading{background:#fff;border-radius:18px;padding:20px 18px;box-shadow:0 3px 14px rgba(61,123,245,.10);color:var(--ash);font-size:14px;line-height:2}
+.history-summary-reading h3{font-size:16px;color:var(--ember);margin:22px 0 8px}
+.history-summary-reading h3:first-child{margin-top:0}
+.history-summary-reading p{margin-bottom:14px}
+.history-summary-minute{display:none;background:linear-gradient(135deg,rgba(255,183,3,.10),#fff);border:1.5px solid rgba(255,183,3,.25);border-radius:18px;padding:18px;margin-top:16px}
+.history-summary-minute.open{display:block}
+.history-summary-minute h3{font-size:17px;color:#C98A00;margin-bottom:12px}
+.history-summary-minute-item{font-size:13px;color:var(--ash);line-height:1.75;margin-bottom:5px}
+.history-summary-actions{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:16px}
+.history-summary-actions button{border:none;border-radius:14px;padding:13px 10px;font-family:inherit;font-size:12px;font-weight:900;cursor:pointer}
+.history-summary-primary{background:var(--ember);color:#fff}
+.history-summary-secondary{background:#fff;color:var(--ash);box-shadow:0 2px 10px rgba(61,123,245,.10)}
+.history-summary-complete{grid-column:1/-1;background:rgba(52,199,123,.14)!important;color:#17894f!important}
+
+
+.history-summary-reading-check{
+  margin-top:16px;padding:16px;border-radius:16px;
+  background:rgba(61,123,245,.07);border:1.5px solid rgba(61,123,245,.18);
+  text-align:center
+}
+.history-summary-reading-check p{font-size:12px;color:var(--sand);margin-bottom:10px}
+.history-summary-reading-check button{
+  width:100%;border:none;border-radius:13px;padding:13px;
+  background:var(--ember);color:#fff;font-family:inherit;font-size:13px;font-weight:900;cursor:pointer
+}
+.history-summary-reading-check button.done{background:rgba(52,199,123,.16);color:#17894f}
+.history-summary-flow-inline{
+  display:block;background:linear-gradient(135deg,rgba(61,123,245,.08),#fff);
+  border:1px solid rgba(61,123,245,.16);border-radius:16px;padding:14px;
+  margin:0 0 14px;text-align:center;color:var(--ash);font-size:12px;font-weight:800;line-height:1.9
+}
+.history-summary-primary:disabled,.history-summary-complete:disabled{opacity:.45;cursor:not-allowed}
+
+
+.history-summary-reading{background:transparent;padding:0;box-shadow:none}
+.history-summary-reading .ht-reading-card{font-size:15px;line-height:2}
+.history-summary-reading .ht-reading-card h3{font-size:16px;color:var(--ember);margin:0}
+.history-summary-reading .ht-reading-paragraph{margin-bottom:14px}
+.history-summary-reading .ht-key-sentence-box{margin-top:18px}
+.history-summary-reading .start-btn{width:100%;margin-top:12px}
+
+
+.parent-practice-banner{
+  display:none;margin-bottom:14px;padding:11px 14px;border-radius:14px;
+  background:rgba(61,123,245,.09);border:1.5px solid rgba(61,123,245,.20);
+  color:var(--ember);font-size:12px;font-weight:900;text-align:center;line-height:1.6
+}
+body.parent-unit-practice .parent-practice-banner{display:block}
+
+
+#font-picker-btn{display:none}
+body.font-picker-home-only #font-picker-btn{display:block}
+
+
+html,body{width:100%}
+body{justify-content:center!important}
+.container{margin-left:auto!important;margin-right:auto!important}
+
+/* 5단계: 학생별 상세 기록 패널 — #student-detail-overlay 내부에만 적용되는 범위 제한 글자색 수정 */
+#student-detail-overlay,
+#student-detail-overlay .pw-box{
+  color:#1f2937;
+}
+#student-detail-overlay #student-detail-title{
+  color:#111827;
+}
+#student-detail-overlay h4{
+  color:#111827;
+}
+#student-detail-overlay #student-detail-summary{
+  color:#64748b;
+}
+#student-detail-overlay #student-detail-section-loginLog,
+#student-detail-overlay #student-detail-section-learningEvent,
+#student-detail-overlay #student-detail-section-quizAttempt,
+#student-detail-overlay #student-detail-section-focusSummary,
+#student-detail-overlay #student-detail-section-resultCorrection,
+#student-detail-overlay #student-detail-section-correctionHistory{
+  color:#1f2937;
+}
+#student-detail-overlay #student-detail-section-loginLog div,
+#student-detail-overlay #student-detail-section-learningEvent div,
+#student-detail-overlay #student-detail-section-quizAttempt div,
+#student-detail-overlay #student-detail-section-focusSummary div,
+#student-detail-overlay #student-detail-section-resultCorrection div,
+#student-detail-overlay #student-detail-section-correctionHistory div{
+  color:#1f2937;
+}
+/* 결과 정정 팝업도 동일한 범위 제한 규칙 적용 */
+#result-correction-overlay,
+#result-correction-overlay .pw-box{
+  color:#1f2937;
+}
+#result-correction-overlay h3{
+  color:#111827;
+}
+#result-correction-overlay label{
+  color:#64748b;
+}
+#result-correction-overlay .pw-cancel{
+  color:#1f2937;
+}
+#result-correction-overlay .pw-confirm{
+  color:#ffffff;
+}
+/* 참고: 오류 문구는 기존 JS(renderStudentDetailError_)에서 인라인 style.color='#e87474'로 이미 지정되어 있어 별도 CSS 불필요 */
+/* 닫기·더보기 버튼은 옅은 배경이라 어두운 글씨로, 진한 배경(확인류) 버튼은 기존 흰색 유지 */
+#student-detail-overlay .pw-cancel{
+  color:#1f2937;
+}
+#student-detail-overlay .pw-confirm{
+  color:#ffffff;
+}
+</style>
+
+</head>
+<body>
+<div class="container">
+  <div id="test-mode-banner" style="display:none" onclick="requestExitTestMode()">👩‍🏫 관리자 모드 — 접속·제출 기록이 저장되지 않아요 (눌러서 끄기)</div>
+  <div id="developer-test-banner" onclick="exitDeveloperTestMode()">🟡 TEST MODE · TEST USER · 모든 기록이 저장되지 않아요 (눌러서 종료)</div>
+  <div id="font-picker-btn" onclick="openFontPicker()">🔤 글꼴</div>
+  <div id="sound-toggle-btn" onclick="toggleAppSound()">🔊</div>
+  <audio id="bgm-audio" preload="none"></audio>
+
+  <!-- 학생 선택 / 학습 홈 화면 -->
+  <div id="start-screen">
+
+    <!-- 1단계: 학생 선택 화면 -->
+    <div id="student-select-view">
+      <div class="app-header">
+        <div class="app-icon" aria-hidden="true">
+          <svg viewBox="0 0 64 64" role="img" aria-label="책과 두루마리 아이콘">
+            <defs>
+              <linearGradient id="appIconBg" x1="0" y1="0" x2="1" y2="1">
+                <stop offset="0%" stop-color="#EEE9FF"/>
+                <stop offset="100%" stop-color="#DDE8FF"/>
+              </linearGradient>
+              <linearGradient id="bookPaper" x1="0" y1="0" x2="1" y2="1">
+                <stop offset="0%" stop-color="#FFF7DB"/>
+                <stop offset="100%" stop-color="#F2D9A6"/>
+              </linearGradient>
+              <linearGradient id="scrollPaper" x1="0" y1="0" x2="1" y2="1">
+                <stop offset="0%" stop-color="#FFF4CF"/>
+                <stop offset="100%" stop-color="#E7C98E"/>
+              </linearGradient>
+            </defs>
+
+            <rect x="1" y="1" width="62" height="62" rx="17" fill="url(#appIconBg)"/>
+
+            <!-- 펼친 책 -->
+            <path d="M10 18c7-3 13-2 20 3v26c-7-5-13-6-20-3V18z"
+                  fill="url(#bookPaper)" stroke="#8B5A38" stroke-width="2"/>
+            <path d="M54 18c-7-3-13-2-20 3v26c7-5 13-6 20-3V18z"
+                  fill="url(#bookPaper)" stroke="#8B5A38" stroke-width="2"/>
+            <path d="M32 21v27" stroke="#8B5A38" stroke-width="2"/>
+            <path d="M15 25h10M15 30h11M15 35h9M39 25h10M38 30h11M40 35h9"
+                  stroke="#C49661" stroke-width="1.8" stroke-linecap="round"/>
+
+            <!-- 두루마리 -->
+            <g transform="translate(34 8) rotate(12)">
+              <rect x="0" y="4" width="19" height="11" rx="4"
+                    fill="url(#scrollPaper)" stroke="#8B5A38" stroke-width="1.8"/>
+              <circle cx="1.5" cy="9.5" r="3.2" fill="#D4A36C" stroke="#8B5A38" stroke-width="1.5"/>
+              <circle cx="17.5" cy="9.5" r="3.2" fill="#D4A36C" stroke="#8B5A38" stroke-width="1.5"/>
+              <path d="M5 8h9M5 11h7" stroke="#A16D42" stroke-width="1.3" stroke-linecap="round"/>
+            </g>
+          </svg>
+        </div>
+
+        <div class="app-title-wrap">
+          <div class="title-label">공부하자앱</div>
+          <div class="title-sub">스스로 공부하는 힘을 키워요!</div>
+        </div>
+      </div>
+      <h1 id="home-heading">이름을 선택해주세요</h1>
+      <p class="subtitle">계정을 선택하면 학습을 이어서 할 수 있어요.</p>
+
+      <div class="section-label" style="display:flex;justify-content:flex-start;align-items:center;gap:8px">
+        <span>🙋 이름 선택</span>
+        <span class="refresh-icon-btn" onclick="renderStudentGrid()">🔄</span>
+      </div>
+      <div class="student-grid" id="student-grid">
+        <div class="student-card app-shell-card" data-shell-student="김주하" data-name="김주하">
+          <div class="student-avatar"><span style="font-size:34px;line-height:1">⭐</span></div>
+          <div class="student-row-info"><div class="student-name-row"><div class="student-name">김주하</div></div><div class="student-progress-row"><div class="student-progress-bar"></div><span class="student-progress-pct">준비 중...</span></div></div>
+          <div class="student-card-arrow">›</div>
+        </div>
+        <div class="student-card app-shell-card" data-shell-student="전민건" data-name="전민건">
+          <div class="student-avatar"><span style="font-size:34px;line-height:1">⭐</span></div>
+          <div class="student-row-info"><div class="student-name-row"><div class="student-name">전민건</div></div><div class="student-progress-row"><div class="student-progress-bar"></div><span class="student-progress-pct">준비 중...</span></div></div>
+          <div class="student-card-arrow">›</div>
+        </div>
+        <div class="student-card app-shell-card" data-shell-student="이하이" data-name="이하이">
+          <div class="student-avatar"><span style="font-size:34px;line-height:1">⭐</span></div>
+          <div class="student-row-info"><div class="student-name-row"><div class="student-name">이하이</div></div><div class="student-progress-row"><div class="student-progress-bar"></div><span class="student-progress-pct">준비 중...</span></div></div>
+          <div class="student-card-arrow">›</div>
+        </div>
+        <div class="student-card app-shell-card" data-shell-student="최단비" data-name="최단비">
+          <div class="student-avatar"><span style="font-size:34px;line-height:1">⭐</span></div>
+          <div class="student-row-info"><div class="student-name-row"><div class="student-name">최단비</div></div><div class="student-progress-row"><div class="student-progress-bar"></div><span class="student-progress-pct">준비 중...</span></div></div>
+          <div class="student-card-arrow">›</div>
+        </div>
+      </div>
+      <script>window.__perfMark && window.__perfMark('학생이름최초표시');</script>
+      <div id="app-shell-status" role="status" aria-live="polite" style="text-align:center;margin-top:9px;font-size:12px;color:var(--sand)">앱 기능을 준비하고 있어요...</div>
+      <div id="content-load-retry-area" style="display:none;text-align:center;margin-top:10px">
+        <div style="font-size:13px;color:var(--sand);margin-bottom:6px">⚠️ 학습 자료를 불러오지 못했어요.</div>
+        <button type="button" class="pw-btn pw-confirm" onclick="retryLearningContentLoad()">학습자료 다시 불러오기</button>
+      </div>
+
+      <button class="teacher-btn" onclick="showParentMode()">👨‍👩‍👧 부모님 확인</button>
+      <button class="teacher-btn" onclick="showTeacher()">👩‍🏫 선생님 확인</button>
+      <button class="teacher-btn" id="admin-quick-btn" onclick="toggleTestMode()">👩‍🏫 관리자 모드</button>
+      <button class="teacher-btn developer-test-btn" id="developer-test-btn" onclick="openDeveloperTestLogin()">🛠 TEST USER 테스트모드</button>
+    </div>
+
+    <!-- 2단계: 인증 후 학습 홈 화면 -->
+    <div id="learning-home-view">
+      <div class="learning-home-header">
+        <div class="app-header learning-app-header">
+          <div class="app-icon" aria-hidden="true">
+            <svg viewBox="0 0 64 64" role="img" aria-label="책과 두루마리 아이콘">
+              <defs>
+                <linearGradient id="learningAppIconBg" x1="0" y1="0" x2="1" y2="1">
+                  <stop offset="0%" stop-color="#EEE9FF"/>
+                  <stop offset="100%" stop-color="#DDE8FF"/>
+                </linearGradient>
+                <linearGradient id="learningBookPaper" x1="0" y1="0" x2="1" y2="1">
+                  <stop offset="0%" stop-color="#FFF7DB"/>
+                  <stop offset="100%" stop-color="#F2D9A6"/>
+                </linearGradient>
+                <linearGradient id="learningScrollPaper" x1="0" y1="0" x2="1" y2="1">
+                  <stop offset="0%" stop-color="#FFF4CF"/>
+                  <stop offset="100%" stop-color="#E7C98E"/>
+                </linearGradient>
+              </defs>
+
+              <rect x="1" y="1" width="62" height="62" rx="17" fill="url(#learningAppIconBg)"/>
+              <path d="M10 18c7-3 13-2 20 3v26c-7-5-13-6-20-3V18z"
+                    fill="url(#learningBookPaper)" stroke="#8B5A38" stroke-width="2"/>
+              <path d="M54 18c-7-3-13-2-20 3v26c7-5 13-6 20-3V18z"
+                    fill="url(#learningBookPaper)" stroke="#8B5A38" stroke-width="2"/>
+              <path d="M32 21v27" stroke="#8B5A38" stroke-width="2"/>
+              <path d="M15 25h10M15 30h11M15 35h9M39 25h10M38 30h11M40 35h9"
+                    stroke="#C49661" stroke-width="1.8" stroke-linecap="round"/>
+              <g transform="translate(34 8) rotate(12)">
+                <rect x="0" y="4" width="19" height="11" rx="4"
+                      fill="url(#learningScrollPaper)" stroke="#8B5A38" stroke-width="1.8"/>
+                <circle cx="1.5" cy="9.5" r="3.2" fill="#D4A36C" stroke="#8B5A38" stroke-width="1.5"/>
+                <circle cx="17.5" cy="9.5" r="3.2" fill="#D4A36C" stroke="#8B5A38" stroke-width="1.5"/>
+                <path d="M5 8h9M5 11h7" stroke="#A16D42" stroke-width="1.3" stroke-linecap="round"/>
+              </g>
+            </svg>
+          </div>
+
+          <div class="app-title-wrap">
+            <div class="title-label">공부하자앱</div>
+            <div class="title-sub">오늘도 한 걸음, 시작해볼까요?</div>
+          </div>
+        </div>
+
+        <p class="subtitle learning-home-subtitle">학습할 과목을 선택해주세요.</p>
+
+        <div class="menu-tile-grid home-menu-grid" style="margin-top:16px;margin-bottom:20px">
+          <button class="menu-tile" onclick="showLectures()">
+            <span class="menu-tile-icon">🎬</span>
+            <span class="menu-tile-label">강의 보기</span>
+          </button>
+          <button id="study-planner-btn" class="menu-tile" type="button" onclick="openStudyPlanner()">
+            <span class="menu-tile-icon">📅</span>
+            <span class="menu-tile-label">스터디플래너</span>
+          </button>
+        </div>
+      </div>
+
+      <div id="selected-name-banner" style="display:none"></div>
+
+    <div id="incomplete-section-wrap" style="display:none">
+      <div class="section-label incomplete-section-header" onclick="toggleIncompleteSection()">
+        <span>⏳ 미완료 단원 <span id="incomplete-count-badge"></span></span>
+        <span id="incomplete-section-arrow">▸</span>
+      </div>
+      <div class="unit-grid">
+        <div class="unit-group-body" id="incomplete-units-body" style="display:none"></div>
+      </div>
+    </div>
+
+    <section class="subject-section history-subject-section" aria-labelledby="history-subject-title">
+      <div class="subject-section-header" onclick="toggleSubjectSection(this)">
+        <div class="subject-section-icon">🏛️</div>
+        <div>
+          <h2 id="history-subject-title">역사</h2>
+          <p>단원 퀴즈와 역사 학습 콘텐츠</p>
+        </div>
+      </div>
+
+      <div class="subject-section-body">
+        <div class="section-label subject-inner-label" style="display:flex;justify-content:flex-start;align-items:center;gap:8px;cursor:pointer" onclick="toggleSectionFold('unit-grid','unit-section-arrow')">
+          <span>🏺 역사단원퀴즈</span><span id="unit-section-arrow">▾</span>
+        </div>
+        <div class="unit-grid" id="unit-grid"></div>
+
+        <div class="section-label subject-inner-label" style="display:flex;justify-content:flex-start;align-items:center;gap:8px;cursor:pointer" onclick="toggleSectionFold('timeline-game-section','study-section-arrow')">
+          <span>📜 역사학습콘텐츠</span><span id="study-section-arrow">▾</span>
+        </div>
+        <div class="unit-grid" id="timeline-game-section"></div>
+      </div>
+    </section>
+
+
+    <section class="subject-section math-subject-section" aria-labelledby="math-subject-title">
+      <div class="subject-section-header" onclick="toggleSubjectSection(this)">
+        <div class="subject-section-icon">➗</div>
+        <div>
+          <h2 id="math-subject-title">수학</h2>
+          <p>개념 학습과 단원 퀴즈</p>
+        </div>
+      </div>
+
+      <div class="subject-section-body">
+        <div class="section-label">📘 수학개념학습 <span style="margin-left:auto;font-size:11px;color:#888">준비중</span></div>
+        <div class="unit-grid">
+          <div class="unit-card" onclick="alert('수학개념학습은 준비 중입니다.')">
+            <div class="unit-icon">📘</div>
+            <div class="unit-info">
+              <div class="unit-title">수학개념학습</div>
+              <div class="unit-sub">중1 · 중2 · 중3 · 고1 (예정)</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="section-label">✉️ 수학단원퀴즈 <span style="margin-left:auto;font-size:11px;color:#888">준비중</span></div>
+        <div class="unit-grid">
+          <div class="unit-card" onclick="alert('수학단원퀴즈는 준비 중입니다.')">
+            <div class="unit-icon">✉️</div>
+            <div class="unit-info">
+              <div class="unit-title">수학단원퀴즈</div>
+              <div class="unit-sub">단원별 문제 풀이 (예정)</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="section-label">📊 오답연습 <span style="margin-left:auto;font-size:11px;color:#888">준비중</span></div>
+        <div class="unit-grid">
+          <div class="unit-card" style="opacity:.65;cursor:default">
+            <div class="unit-icon">📊</div>
+            <div class="unit-info">
+              <div class="unit-title">오답연습</div>
+              <div class="unit-sub">틀린 문제 자동 복습 (예정)</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+
+    <div id="level-section-wrapper">
+      <div class="section-label" id="level-section-label">🎯 난이도 선택</div>
+      <div class="level-grid" id="level-grid-wrap">
+        <div class="level-card active" data-level="easy" onclick="selectLevel(this)">
+          <div class="level-name">🌱 기본</div>
+          <div class="level-desc" id="easy-desc">15문제 · OX + 4지선다</div>
+        </div>
+        <div class="level-card" data-level="hard" onclick="selectLevel(this)">
+          <div class="level-name">🔥 심화</div>
+          <div class="level-desc" id="hard-desc">15문제 · 단답형 포함</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 홈 바로가기 메뉴 -->
+<!-- 계정 변경은 학습 홈의 맨 아래에 배치 -->
+    <button type="button" class="teacher-btn change-student-btn" onclick="changeStudentFromLearningHome()">↩ 다른 학생으로 로그인</button>
+    </div><!-- /learning-home-view -->
+  </div><!-- /start-screen -->
+
+  <!-- 학습 요약 노트 화면 -->
+  <div id="summary-screen">
+    <div class="summary-header">
+      <h2>📖 이전 학습내용 확인하기</h2>
+      <p>선사시대부터 삼국문화까지, 핵심만 쭉 훑어보세요!</p>
+    </div>
+
+    <div class="summary-section">
+      <div class="summary-title">1️⃣ 선사 시대 (구석기 &amp; 신석기)</div>
+      <p class="summary-text"><b>구석기 시대</b>(약 70만 년 전)는 돌을 떼어내 만든 뗀석기(주먹도끼·찍개·슴베찌르개)를 사용했어요. 식량을 찾아 이동 생활을 하며 동굴·막집에서 살았고, 불을 이용해 음식을 익혀 먹었으며 계급이 없는 평등 사회였어요.</p>
+      <p class="summary-text"><b>신석기 시대</b>(약 1만 년 전)는 돌을 갈아 만든 간석기와 가락바퀴, 빗살무늬 토기를 사용했어요. 농경과 목축이 시작되며 움집을 짓고 정착 생활을 했고, 자연 숭배(애니미즘)·동물 숭배(토테미즘) 신앙이 나타났어요.</p>
+    </div>
+
+    <div class="summary-section">
+      <div class="summary-title">2️⃣ 청동기 시대와 고조선</div>
+      <p class="summary-text"><b>청동기 시대</b>(약 4,000년 전)엔 비파형 동검·거친무늬 거울 등 청동기가 족장의 권위용으로 쓰였지만, 농사는 여전히 반달 돌칼 같은 석기로 지었어요. 벼농사로 잉여 생산물이 생기며 사유재산·계급이 발생했고, 족장은 고인돌을 무덤으로 만들었어요.</p>
+      <img class="summary-img" src="" data-art="dongkeom"/>
+      <img class="summary-img" src="" data-art="goindol"/>
+      <p class="summary-text"><b>고조선</b>은 기원전 2333년 단군왕검이 건국했어요(제정일치). 비파형 동검·탁자식 고인돌로 세력 범위를 알 수 있고, 8조법으로 사회 질서를 유지했어요. 위만이 왕이 된 후 철기 문화가 본격 보급됐고, 한나라의 침공으로 기원전 108년 왕검성이 함락되며 멸망했어요.</p>
+    </div>
+
+    <div class="summary-section">
+      <div class="summary-title">3️⃣ 철기 보급과 여러 나라의 성장</div>
+      <div class="summary-table">
+        <div class="summary-row"><span class="summary-label">부여</span><span>사출도(마가·우가·저가·구가), 영고(12월), 1책 12법</span></div>
+        <div class="summary-row"><span class="summary-label">고구려</span><span>제가회의, 동맹(10월), 서옥제(데릴사위제)</span></div>
+        <div class="summary-row"><span class="summary-label">옥저</span><span>가족 공동 무덤, 민며느리제</span></div>
+        <div class="summary-row"><span class="summary-label">동예</span><span>단궁·과하마·반어피, 무천(10월), 책화</span></div>
+        <div class="summary-row"><span class="summary-label">삼한</span><span>천군·소도(제정분리), 수릿날(5월)·계절제(10월)</span></div>
+      </div>
+    </div>
+
+    <div class="summary-section">
+      <div class="summary-title">4️⃣ 삼국의 경쟁과 전성기</div>
+      <p class="summary-text"><b>백제(4세기, 근초고왕)</b>: 마한 통합, 고구려 고국원왕 전사시킴, 요서·산둥·규슈 진출. 침류왕 때 불교 수용.</p>
+      <p class="summary-text"><b>고구려(5세기)</b>: 소수림왕(태학·율령·불교로 재건) → 광개토대왕(영락 연호, 만주 진출, 신라 구원) → 장수왕(평양 천도, 남진정책, 한성 함락).</p>
+      <p class="summary-text"><b>신라(6세기)</b>: 지증왕(국호 확정, 우산국 복속) → 법흥왕(율령·불교공인·금관가야 병합) → 진흥왕(한강 독차지, 화랑도 개편, 대가야 정복, 순수비 건립).</p>
+    </div>
+
+    <div class="summary-section">
+      <div class="summary-title">5️⃣-1 신분 사회와 생활 모습</div>
+      <div class="summary-table">
+        <div class="summary-row"><span class="summary-label">👘 의(衣)</span><span>귀족 = 비단옷 · 평민 = 베·가죽옷</span></div>
+        <div class="summary-row"><span class="summary-label">🍚 식(食)</span><span>귀족 = 쌀·고기 · 평민 = 보리·콩·도토리</span></div>
+        <div class="summary-row"><span class="summary-label">🏠 주(住)</span><span>귀족 = 기와집(부엌·창고) · 평민 = 초가집(거적)</span></div>
+      </div>
+    </div>
+
+    <div class="summary-section">
+      <div class="summary-title">5️⃣-2 무덤(고분)으로 보는 역사</div>
+      <div class="summary-table">
+        <div class="summary-row"><span class="summary-label">고구려</span><span>돌무지 무덤</span></div>
+        <div class="summary-row"><span class="summary-label">백제</span><span>계단식 돌무지 무덤 (고구려와 건국 연관성)</span></div>
+        <div class="summary-row"><span class="summary-label">신라</span><span>돌무지 덧널 무덤 (도굴 어려움, 벽화 없음)</span></div>
+        <div class="summary-row"><span class="summary-label">가야</span><span>구덩식 돌덧널 무덤</span></div>
+      </div>
+      <p class="summary-text">이후 공통적으로 <b>굴식 돌방무덤</b>으로 변화 → 벽화(사신도 등) 가능, 대신 도굴에 취약했어요.</p>
+      <img class="summary-img" src="" data-art="sashindo"/>
+      <p class="summary-text"><b>백제 무령왕릉</b>은 중국 남조 영향을 받은 벽돌 무덤이에요.</p>
+      <img class="summary-img" src="" data-art="muwon"/>
+    </div>
+
+    <div class="summary-section">
+      <div class="summary-title">5️⃣-3 종교와 학문</div>
+      <p class="summary-text"><b>불교</b>는 왕권 강화·백성 통합을 위해 장려됐어요. 황룡사(신라)·미륵사(백제) 같은 거대 사찰이 지어졌어요.</p>
+      <img class="summary-img" src="" data-art="jinkeum"/>
+      <p class="summary-text"><b>도교</b>는 신선 사상과 산천 숭배가 결합됐어요. 사신도·산수문전·백제 금동대향로가 대표적이에요.</p>
+      <img class="summary-img" src="" data-art="hyanro"/>
+      <p class="summary-text"><b>유학</b>은 고구려 태학, 백제 오경박사, 신라 임신서기석으로 알 수 있어요.</p>
+    </div>
+
+    <div class="summary-section">
+      <div class="summary-title">5️⃣-4 과학 기술과 대외 교류</div>
+      <p class="summary-text">왕의 권위를 하늘과 연결하려 천문학을 중시했어요. 신라 첨성대가 대표적이에요.</p>
+      <img class="summary-img" src="" data-art="cheom"/>
+      <p class="summary-text"><b>서역 교류</b>: 아프라시아브 궁전 벽화 속 고구려 사신, 경주 출토 서역 유물(황남대총 금제 장식 보검·유리 제품).</p>
+      <p class="summary-text"><b>일본 전파</b>: 백제(한자·불교·천문학), 고구려(종이·먹, 담징), 신라(조선술) → 일본 아스카 문화 형성에 기여했어요.</p>
+      <img class="summary-img" src="" data-art="bangasa"/>
+      <p class="summary-caption">일본 목조 미륵보살 반가사유상은 한국 삼국시대 유물과 매우 유사해요.</p>
+    </div>
+
+    <button class="teacher-back" onclick="hideSummary()">← 돌아가기</button>
+  </div>
+
+  <!-- 강의 보기 화면 -->
+  <div id="lecture-screen">
+    <div class="teacher-header">
+      <h2>🎬 강의 보기</h2>
+      <p>영상을 눌러 유튜브에서 시청하세요</p>
+    </div>
+    <div class="section-label">🔥 오늘 강의 · NEW</div>
+    <div class="lecture-list" id="today-lecture-list"></div>
+
+    <div class="section-label">📗 지난 강의</div>
+    <div class="lecture-list" id="past-lecture-list"></div>
+    <button class="lecture-more-btn" id="past-more-btn" onclick="expandPastLectures()">더보기 ▾</button>
+
+    <button class="teacher-back" onclick="hideLectures()">← 돌아가기</button>
+  </div>
+
+  <!-- 선생님 확인 화면 -->
+  <!-- 부모님 모드 화면 -->
+  <!-- 사건 배열하기 게임 화면 -->
+  <div id="timeline-game-screen" style="display:none">
+    <div class="wrap" style="max-width:480px;margin:0 auto;padding:0">
+
+  <div class="hero">
+    <div class="hero-eyebrow">HISTORY TIMELINE GAME</div>
+    <h1>사건 배열하기</h1>
+    <p>선사 시대부터 통일 신라의 발전과 몰락까지<br>흩어진 사건들을 시간 순서대로 이어보세요</p>
+    <div class="scroll-rule"></div>
+  </div>
+
+  <!-- 시작 화면 -->
+  <div id="tlg-start-screen" class="panel">
+    <div class="section-title">📜 난이도를 골라주세요</div>
+    <div class="diff-list" id="diff-list"></div>
+    <button class="start-btn" onclick="startGame()">두루마리 펼치기 →</button>
+    <div class="tlgScore-strip" id="tlgScore-strip"></div>
+  </div>
+
+  <!-- 퀴즈 화면 -->
+  <div id="tlg-quiz-screen">
+    <div class="quiz-topbar">
+      <span id="quiz-progress">1 / 10</span>
+      <span class="badge" id="quiz-diff-badge">쉬움</span>
+      <span style="cursor:pointer;text-decoration:underline" onclick="backToStart()">처음으로</span>
+    </div>
+    <div class="panel">
+      <div class="quiz-instruction">사건을 일어난 순서대로 눌러 배열하세요</div>
+
+      <div class="rope-line" id="rope-line">
+        <span class="rope-empty-hint">아래 사건을 눌러서 순서대로 담아보세요</span>
+      </div>
+
+      <div class="event-tlgPool" id="event-tlgPool"></div>
+
+      <div class="quiz-actions">
+        <button class="btn-secondary" onclick="resetOrder()">다시 담기</button>
+        <button class="btn-primary" id="tlg-submit-btn" onclick="checkAnswer()" disabled>정답 확인</button>
+      </div>
+
+      <div id="result-panel">
+        <div class="result-flag" id="result-flag"></div>
+        <div class="correct-order" id="correct-order"></div>
+        <div class="explain-box" id="explain-box"></div>
+        <button class="start-btn" id="tlg-result-next-btn" onclick="tlgNextQuestion()">다음 사건 →</button>
+      </div>
+    </div>
+  </div>
+
+    <button class="teacher-back" onclick="goHome()">← 돌아가기</button>
+  </div>
+  </div>
+
+
+  <!-- 지도 문제 목록 화면 -->
+  <div id="king-order-screen">
+    <div class="king-order-header">
+      <h2 id="king-order-title">👑 역대 왕 계보</h2>
+      <p id="king-order-sub">전체 왕은 읽고, 문제는 핵심 왕만 풀어요.</p>
+    </div>
+    <div id="king-order-body"></div>
+    <button class="teacher-back" onclick="goHome()">← 돌아가기</button>
+  </div>
+
+  <!-- 지도 문제 목록 화면 -->
+  <div id="map-study-list-screen">
+    <div class="map-study-header">
+      <h2>🗺️ 지도 문제</h2>
+      <p>위치와 영토를 지도에서 익혀보세요<br>PART 1부터 PART 5까지 준비했어요</p>
+    </div>
+    <div id="map-admin-note" class="map-admin-note">👩‍🏫 관리자모드 · 보기 전용</div>
+    <div id="map-part-list" class="map-part-list"></div>
+    <button class="teacher-back" onclick="goHome()">← 돌아가기</button>
+  </div>
+
+
+  <!-- 지도 확인학습 화면 -->
+  <div id="map-study-learn-screen">
+    <div class="map-learn-card">
+      <div class="map-learn-head">
+        <h3 id="map-learn-title">🗺️ 지도 확인학습</h3>
+        <p>아래 이름을 눌러 위치와 설명을 먼저 익혀보세요.</p>
+      </div>
+      <div id="map-learn-tabs" class="map-learn-tabs"></div>
+      <div id="map-learn-map"></div>
+      <div id="map-learn-explain" class="map-learn-explain">이름을 눌러 확인해보세요.</div>
+      <div class="map-learn-actions">
+        <button id="map-learn-toggle-btn" class="map-learn-hide" onclick="toggleMapLearnLabels()">이름 가리기</button>
+        <button class="map-learn-start" onclick="beginMapQuizAfterLearn()">문제 풀기 →</button>
+      </div>
+    </div>
+    <button class="teacher-back" onclick="showMapStudyList()">← 지도 문제 목록으로</button>
+  </div>
+
+  <!-- 지도 문제 퀴즈 화면 -->
+  <div id="map-study-quiz-screen">
+    <div class="map-quiz-card">
+      <div class="map-quiz-top">
+        <span id="map-part-label"></span>
+        <span id="map-question-progress"></span>
+      </div>
+      <div id="map-question-text" class="map-question"></div><div id="map-click-guide" style="display:none;text-align:center;color:var(--sand);font-size:11px;font-weight:700;margin:-8px 0 12px">지도 위 번호를 눌러 답하세요.</div>
+      <div id="map-question-area"></div>
+      <div id="map-feedback" class="map-feedback"></div>
+      <button id="map-next-btn" class="map-next-btn" onclick="nextMapQuestion()">다음 문제 →</button>
+    </div>
+    <button class="teacher-back" onclick="showMapStudyList()">← 지도 문제 목록으로</button>
+  </div>
+
+  <!-- 역사 훈련소: PART 목록 화면 -->
+  <div id="ht-list-screen">
+    <div class="teacher-header">
+      <h2>🏛️ 역사 훈련소</h2>
+      <p>읽고 쓰며 완성하는 한국사 복습</p>
+    </div>
+    <div id="ht-list-body"></div>
+    <button class="teacher-back" onclick="goHome()">← 돌아가기</button>
+  </div>
+
+  <!-- 역사 훈련소: PART 진행 화면 -->
+  <div id="ht-part-screen">
+    <div id="ht-step-indicator"></div>
+    <div id="ht-part-title"></div>
+
+    <div id="ht-reading-area"></div>
+    <div id="ht-transcription-area"></div>
+    <div id="ht-quiz-area"></div>
+    <div id="ht-first-result-area"></div>
+    <div id="ht-review-area"></div>
+    <div id="ht-final-result-area"></div>
+
+    <button class="teacher-back" onclick="showHistoryTrainingList()">← 역사 훈련소 목록으로</button>
+  </div>
+
+
+  <!-- 역사총정리 ① -->
+  <div id="history-summary-screen">
+    <div class="history-summary-header">
+      <div class="history-summary-title-row">
+        <div>
+          <div class="history-summary-title">⭐ 역사총정리 ①</div>
+          <div class="history-summary-sub">선사시대부터 통일 신라의 쇠퇴까지</div>
+        </div>
+        <button class="history-summary-flow-btn" onclick="toggleHistorySummaryFlow()">🧭 시대 흐름 접기</button>
+      </div>
+    </div>
+
+    <div id="history-summary-flow" class="history-summary-flow-inline">
+      선사시대<br>↓<br>청동기·철기<br>↓<br>고조선<br>↓<br>여러 나라의 성장<br>↓<br>삼국<br>↓<br>삼국 통일<br>↓<br>통일 신라·발해<br>↓<br>남북국<br>↓<br>통일 신라 쇠퇴<br>↓<br>후삼국
+    </div>
+
+    <div id="history-summary-reading" class="history-summary-reading"></div>
+
+    <div id="history-summary-minute" class="history-summary-minute">
+      <h3>⭐ 시험 직전 1분 핵심요약</h3>
+      <div id="history-summary-minute-body"></div>
+    </div>
+
+    <div class="history-summary-actions">
+      <button class="history-summary-secondary" onclick="showHistorySummaryReading()">📖 다시 읽기</button>
+      <button id="history-summary-minute-btn" class="history-summary-primary" onclick="showHistorySummaryMinute()">⭐ 1분 핵심요약</button>
+      <button id="history-summary-complete-btn" class="history-summary-complete" onclick="completeHistorySummary1()">✅ 총정리 완료하기</button>
+      <button class="history-summary-secondary" style="grid-column:1/-1" onclick="showHistoryTrainingList()">← 역사 훈련소 목록으로</button>
+    </div>
+  </div>
+
+  <div id="parent-screen">
+    <div class="teacher-header">
+      <h2>👨‍👩‍👧 부모님 확인</h2>
+      <p>아이 이름을 선택하면 학습 완료 여부만 확인할 수 있어요</p>
+    </div>
+    <div class="student-grid" id="parent-student-picker"></div>
+    <div id="parent-result-area"></div>
+    <button class="teacher-back" onclick="goHome()">← 돌아가기</button>
+  </div>
+
+  <div id="teacher-screen">
+    <div class="teacher-header">
+      <h2>👩‍🏫 제출 현황</h2>
+      <p>학생별 퀴즈 완료 여부를 확인합니다</p>
+    </div>
+    <div class="teacher-stat-summary" id="teacher-stat-summary"></div>
+    <div class="content-approval-panel">
+      <div class="content-approval-title" onclick="toggleContentApprovalPanel()">
+        <span>📚 문제 공개 관리</span><span id="content-approval-arrow">▾</span>
+      </div>
+      <div class="content-approval-sub">미리 등록한 문제를 공개해야 학생이 풀 수 있어요.</div>
+      <div id="content-approval-body" class="content-approval-body"></div>
+    </div>
+    <div class="student-result-grid" id="teacher-result-grid"></div>
+    <button class="teacher-back" onclick="showQuestionBank()" style="background:rgba(74,124,89,0.15);color:#7ecb94;border:1.5px solid rgba(74,124,89,0.3);margin-bottom:10px">📋 전체 문제 확인하기</button>
+<div class="date-reset-row">
+      <input type="date" id="reset-date-input" class="date-reset-input"/>
+      <button class="date-reset-btn" onclick="resetByDateUI(this)">🗓️ 이 날짜 기록만 초기화</button>
+    </div>
+
+    <button class="teacher-back" onclick="resetAccessLogUI(this)" style="background:rgba(185,64,64,0.15);color:#e87474;border:1.5px solid rgba(185,64,64,0.3);margin-bottom:10px">🕐 접속기록 초기화</button>
+    <button class="teacher-back" id="test-mode-btn" onclick="toggleTestMode()" style="background:rgba(90,122,165,0.15);color:#7FB0D8;border:1.5px solid rgba(90,122,165,0.3);margin-bottom:10px">👩‍🏫 관리자 모드 켜기</button>
+    <button class="teacher-back" onclick="goHome()">← 돌아가기</button>
+  </div>
+
+  <!-- 전체 문제은행 확인 화면 -->
+  <div id="qbank-screen">
+    <div class="teacher-header">
+      <h2>📋 전체 문제 확인</h2>
+      <p>단원을 눌러 문제·정답·해설을 확인하세요</p>
+    </div>
+    <div id="qbank-body"></div>
+    <button class="teacher-back" onclick="hideQuestionBank()">← 돌아가기</button>
+  </div>
+
+  <!-- 퀴즈 화면 -->
+  <div id="quiz-screen">
+    <div class="parent-practice-banner">👨‍👩‍👧 완료한 UNIT 다시 풀기 · 점수와 오답은 아이 기록에 저장되지 않습니다.</div>
+    <div id="exam-timer-bar" class="exam-timer-bar" style="display:none">
+      ⏰ 남은 시간 <span id="exam-timer-text">40:00</span>
+    </div>
+    <div class="quiz-header">
+      <div class="q-counter">문제 <span id="q-num">1</span> / <span id="q-total">10</span></div>
+      <div class="timer-circle" id="timer-circle-wrap">
+        <svg viewBox="0 0 44 44">
+          <circle class="timer-bg" cx="22" cy="22" r="18"/>
+          <circle class="timer-ring" id="timer-ring" cx="22" cy="22" r="18" stroke-dasharray="113.1" stroke-dashoffset="0"/>
+        </svg>
+        <div class="timer-num" id="timer-num">10</div>
+      </div>
+      <div class="score-badge" id="score-badge">점수: 0</div>
+    </div>
+    <div class="progress-bar"><div class="progress-fill" id="progress-fill" style="width:0%"></div></div>
+    <div id="q-type-tag" class="q-type-tag"></div>
+    <div class="question-card">
+      <div class="question-text" id="question-text"></div>
+      <div class="question-hint" id="question-hint"></div>
+      <div id="artifact-wrap" style="display:none">
+        <img id="artifact-img" class="artifact-img" src="" alt="문화재 사진" onerror="document.getElementById('artifact-wrap').style.display='none'"/>
+      </div>
+    </div>
+    <div id="options-container"></div>
+    <div class="feedback-box" id="feedback-box">
+      <div class="feedback-title" id="feedback-title"></div>
+      <div class="feedback-explain" id="feedback-explain"></div>
+    </div>
+    <button class="next-btn" id="next-btn" onclick="nextQuestion()">다음 문제 →</button>
+
+    <div id="exam-nav" class="exam-nav" style="display:none">
+      <button class="exam-nav-btn" id="exam-prev-btn" onclick="examPrev()">← 이전</button>
+      <span class="exam-position" id="exam-position">1 / 35</span>
+      <button class="exam-nav-btn" id="exam-next-btn" onclick="examNext()">다음 →</button>
+      <button class="exam-submit-btn" id="exam-submit-btn" style="display:none" onclick="submitExam(false)">제출하기</button>
+    </div>
+  </div>
+
+  <!-- 정리문제 시작 안내 팝업 -->
+  <div class="pw-overlay" id="exam-start-overlay">
+    <div class="pw-box">
+      <div style="font-size:40px;margin-bottom:10px">✉️</div>
+      <h3>정리문제 안내</h3>
+      <p style="color:var(--sand);font-size:13px;line-height:1.7;margin:10px 0 16px">
+        전체 <b style="color:var(--ash)">40분</b> 동안 35문제를 풀어요.<br>
+        <b style="color:var(--ash)">100점 만점에 70점 이상</b>이면 합격이에요!<br>
+        앞뒤 문제 이동 가능, 마지막 문제에서<br>"제출하기"를 눌러야 채점됩니다.
+      </p>
+      <button class="pw-btn pw-confirm" style="width:100%" onclick="confirmExamStart()">시작하기!</button>
+    </div>
+  </div>
+
+  <!-- 결과 화면 -->
+  <div id="result-screen">
+    <div class="parent-practice-banner">🔒 이번 결과는 확인용이며 학생 기록에 반영되지 않습니다.</div>
+    <span class="result-icon" id="result-icon"></span>
+    <div class="result-grade-ring">
+      <div class="result-grade" id="result-grade"></div>
+    </div>
+    <div class="result-msg" id="result-msg"></div>
+    <div class="pass-badge" id="pass-badge"></div>
+    <div class="score-display">
+      <div class="score-item"><div class="score-num" id="res-score">0</div><div class="score-lbl">획득 점수</div></div>
+      <div class="score-item"><div class="score-num" id="res-correct">0</div><div class="score-lbl">맞은 문제</div></div>
+      <div class="score-item"><div class="score-num" id="res-total">0</div><div class="score-lbl">전체 문제</div></div>
+    </div>
+    <div class="wrong-list" id="wrong-list" style="display:none">
+      <h3>📌 틀린 문제 복습</h3>
+      <div id="wrong-items"></div>
+    </div>
+    <div class="leaderboard">
+      <div class="lb-title" id="lb-title">🏅 우리 반 현황</div>
+      <div id="lb-rows"><div class="lb-empty">아직 제출된 결과가 없어요</div></div>
+    </div>
+    <div class="result-btns" style="margin-bottom:10px">
+      <button class="retry-btn" id="submit-btn" onclick="submitResult()">📤 결과 제출하기</button>
+    </div>
+    <div class="result-btns" id="result-main-actions">
+      <button class="retry-btn" onclick="retryQuiz()">전체 다시 풀기</button>
+      <button class="home-btn" onclick="goHome()">처음으로</button>
+    </div>
+  </div>
+
+  <div class="toast" id="toast">✅ 결과가 제출되었습니다!</div>
+
+  <!-- 비밀번호 모달 -->
+  <div class="pw-overlay" id="pw-overlay">
+    <div class="pw-box">
+      <h3>👩‍🏫 선생님 확인</h3>
+      <input class="pw-input" id="pw-input" type="password" inputmode="numeric" maxlength="6" placeholder="비밀번호"/>
+      <div class="pw-error" id="pw-error"></div>
+      <div class="pw-btns">
+        <button class="pw-btn pw-cancel" onclick="closePwModal()">취소</button>
+        <button class="pw-btn pw-confirm" onclick="checkPassword()">확인</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 아바타 선택 모달 -->
+  <div class="pw-overlay" id="avatar-overlay">
+    <div class="pw-box avatar-box">
+      <h3 id="avatar-modal-title">내 캐릭터 만들기</h3>
+      <div class="avatar-preview" id="avatar-preview"></div>
+
+      <div class="avatar-scroll">
+        <div class="avatar-cat-label">🎨 피부톤</div>
+        <div class="avatar-swatch-row" id="skin-row"></div>
+
+        <div class="avatar-cat-label">💇 헤어</div>
+        <div class="avatar-swatch-row" id="hair-row"></div>
+
+        <div class="avatar-cat-label">👀 눈</div>
+        <div class="avatar-swatch-row" id="eyes-row"></div>
+
+        <div class="avatar-cat-label">👃 코</div>
+        <div class="avatar-swatch-row" id="nose-row"></div>
+
+        <div class="avatar-cat-label">👄 입</div>
+        <div class="avatar-swatch-row" id="mouth-row"></div>
+
+        <div class="avatar-cat-label">✨ 악세서리</div>
+        <div class="avatar-swatch-row" id="accessory-row"></div>
+      </div>
+
+      <div class="pw-btns" style="margin-top:14px">
+        <button class="pw-btn pw-cancel" onclick="closeAvatarPicker()">취소</button>
+        <button class="pw-btn pw-confirm" onclick="saveCharAvatar()">저장하기</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 이름 확인 모달 -->
+  <!-- 관리자 모드 해제 비밀번호 모달 -->
+  <!-- 글꼴 선택 모달 -->
+  <div class="pw-overlay" id="font-picker-overlay">
+    <div class="pw-box">
+      <h3>🔤 글꼴 선택</h3>
+      <p style="color:var(--sand);font-size:11px;margin-top:6px">이 폰에서만 적용돼요</p>
+      <div class="font-opt-list" id="font-opt-list"></div>
+      <button class="pw-btn pw-cancel" style="width:100%" onclick="closeFontPicker()">닫기</button>
+    </div>
+  </div>
+
+  <!-- 부모님 모드 비밀번호 모달 -->
+  <div class="pw-overlay" id="parent-pw-overlay">
+    <div class="pw-box">
+      <h3>👨‍👩‍👧 부모님 확인</h3>
+      <input class="pw-input" id="parent-pw-input" type="text" placeholder="비밀번호"/>
+      <div class="pw-error" id="parent-pw-error"></div>
+      <div class="pw-btns">
+        <button class="pw-btn pw-cancel" onclick="closeParentPw()">취소</button>
+        <button class="pw-btn pw-confirm" onclick="checkParentPassword()">확인</button>
+      </div>
+    </div>
+  </div>
+
+
+  <!-- 숨은 관리자 모드 로그인 -->
+  <div class="pw-overlay" id="admin-login-overlay">
+    <div class="pw-box">
+      <h3>👩‍🏫 관리자 모드</h3>
+      <input class="pw-input" id="admin-login-input" type="password" inputmode="numeric" maxlength="6" placeholder="비밀번호"/>
+      <div class="pw-error" id="admin-login-error"></div>
+      <div class="pw-btns">
+        <button class="pw-btn pw-cancel" onclick="closeAdminLogin()">취소</button>
+        <button class="pw-btn pw-confirm" onclick="confirmAdminLogin()">확인</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="pw-overlay" id="admin-exit-overlay">
+    <div class="pw-box">
+      <h3>👩‍🏫 관리자 모드 끄기</h3>
+      <input class="pw-input" id="admin-exit-input" type="password" inputmode="numeric" maxlength="6" placeholder="비밀번호"/>
+      <div class="pw-error" id="admin-exit-error"></div>
+      <div class="pw-btns">
+        <button class="pw-btn pw-cancel" onclick="closeExitTestMode()">취소</button>
+        <button class="pw-btn pw-confirm" onclick="checkExitTestModePassword()">확인</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- C안: 학습 콘텐츠 준비 중 안전 화면 -->
+  <div class="pw-overlay" id="content-preparing-overlay">
+    <div class="pw-box">
+      <h3>학습 자료 준비 중...</h3>
+      <p style="font-size:13px;color:var(--sand)">잠시만 기다려주세요. 준비가 끝나면 자동으로 들어가요.</p>
+      <button type="button" id="content-preparing-retry-btn" class="pw-btn pw-confirm" style="display:none;margin-top:8px" onclick="retryContentPreparingScreen_()">다시 시도</button>
+    </div>
+  </div>
+
+  <!-- 5단계: 학생별 상세 기록(읽기 전용) -->
+  <div class="pw-overlay" id="student-detail-overlay">
+    <div class="pw-box" style="max-width:520px;max-height:80vh;overflow-y:auto;text-align:left">
+      <h3 id="student-detail-title">상세 기록</h3>
+      <div id="student-detail-summary" style="margin-bottom:12px;font-size:14px"></div>
+      <div id="student-detail-section-loginLog"></div>
+      <div id="student-detail-section-learningEvent"></div>
+      <div id="student-detail-section-quizAttempt"></div>
+      <div id="student-detail-section-focusSummary"></div>
+      <div id="student-detail-section-resultCorrection"></div>
+      <div id="student-detail-section-correctionHistory"></div>
+      <div class="pw-btns" style="margin-top:12px">
+        <button class="pw-btn pw-cancel" onclick="closeStudentDetailPanel()">닫기</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 6단계: 결과 정정 팝업 -->
+  <div class="pw-overlay" id="result-correction-overlay">
+    <div class="pw-box" style="max-width:420px;max-height:85vh;overflow-y:auto;text-align:left">
+      <h3>결과 정정</h3>
+      <div id="correction-modal-info" style="font-size:13px;margin-bottom:10px"></div>
+      <div style="margin-bottom:8px">
+        <label style="font-size:12px;display:block;margin-bottom:4px">정정 유형</label>
+        <select id="correction-type-select" class="pw-input" onchange="onCorrectionTypeChange_()" style="width:100%">
+          <option value="scoreCorrection">점수·정답 수 오류 정정</option>
+          <option value="passCorrection">PASS 기준 재판정</option>
+          <option value="forcePass">강제 PASS</option>
+        </select>
+      </div>
+      <div id="correction-score-inputs">
+        <div style="margin-bottom:8px">
+          <label style="font-size:12px;display:block;margin-bottom:4px">정답 수</label>
+          <input type="number" id="correction-correct-input" class="pw-input" style="width:100%" min="0"/>
+        </div>
+        <div style="margin-bottom:8px">
+          <label style="font-size:12px;display:block;margin-bottom:4px">전체 문제 수</label>
+          <input type="number" id="correction-total-input" class="pw-input" style="width:100%" min="1"/>
+        </div>
+      </div>
+      <div id="correction-preview" style="font-size:13px;margin:8px 0;font-weight:700"></div>
+      <div style="margin-bottom:8px">
+        <label style="font-size:12px;display:block;margin-bottom:4px">정정 사유(필수, 500자 이하)</label>
+        <textarea id="correction-reason-input" class="pw-input" style="width:100%;min-height:60px" maxlength="500" oninput="updateCorrectionPreview_()"></textarea>
+      </div>
+      <div id="correction-error" style="color:#b91c1c;font-size:12px;margin-bottom:8px"></div>
+      <div class="pw-btns">
+        <button class="pw-btn pw-cancel" onclick="closeResultCorrectionModal()">취소</button>
+        <button class="pw-btn pw-confirm" id="correction-save-btn" onclick="submitResultCorrection_()">정정 저장</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 퀴즈 시작 확인 팝업 -->
+  <!-- 설정 선택 모달 (아바타/기분) -->
+  <div class="pw-overlay" id="settings-menu-overlay">
+    <div class="pw-box">
+      <h3>무엇을 설정할까요?</h3>
+      <div class="settings-menu-list">
+        <div class="settings-menu-item" onclick="chooseSettingsAvatar()">🎨 아바타 설정</div>
+        <div class="settings-menu-item" onclick="chooseSettingsMood()">😊 기분 설정</div>
+      </div>
+      <button class="pw-btn pw-cancel" style="width:100%;margin-top:10px" onclick="closeSettingsMenu()">닫기</button>
+    </div>
+  </div>
+
+  <div class="pw-overlay" id="start-quiz-overlay">
+    <div class="pw-box" style="position:relative">
+      <div class="popup-close-x" onclick="closeStartQuizPopup()">✕</div>
+      <div style="font-size:36px;margin-bottom:8px">🚀</div>
+      <h3 id="start-popup-title">단원</h3>
+      <p id="start-popup-sub" style="color:var(--sand);font-size:13px;margin-top:6px"></p>
+      <button class="pw-btn pw-confirm" style="width:100%;margin-top:16px" onclick="confirmStartQuiz()">시작 →</button>
+    </div>
+  </div>
+
+  <div class="pw-overlay" id="name-confirm-overlay">
+    <div class="pw-box">
+      <div id="name-confirm-avatar" style="margin-bottom:8px"></div>
+      <h3 id="name-confirm-text">본인이 맞나요?</h3>
+      <p id="name-confirm-desc" style="color:var(--clay);font-size:11px;line-height:1.6;margin-top:10px">출석 횟수와 접속 시간이 모두 기록되고 있습니다.<br>본인 것만 출석 체크해주세요!</p>
+      <div id="pin-input-area" style="margin-top:14px"></div>
+      <div id="pin-error" style="color:#e87474;font-size:12px;margin-top:6px"></div>
+      <div class="pw-btns" style="margin-top:16px">
+        <button class="pw-btn pw-cancel" onclick="closeNameConfirm()">취소</button>
+        <button class="pw-btn pw-confirm" id="pin-confirm-btn" onclick="confirmPinAction()">확인</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 심야 시간대(자정~새벽 6시) 로그인 경고 -->
+  <div class="pw-overlay" id="late-night-overlay">
+    <div class="pw-box">
+      <div style="font-size:40px;margin-bottom:8px">🌙</div>
+      <h3>안 자냐? 일찍하라고</h3>
+      <p style="color:var(--clay);font-size:12px;line-height:1.7;margin-top:10px">숙제는 12시 이전에 해</p>
+      <div class="pw-btns" style="margin-top:16px">
+        <button class="pw-btn pw-confirm" style="width:100%" onclick="closeLateNightWarning()">알겠어요, 계속할게요</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 기분 선택 모달 -->
+  <div class="pw-overlay" id="mood-overlay">
+    <div class="pw-box">
+      <h3 id="mood-modal-title">오늘 기분은 어때요?</h3>
+      <div class="mood-picker-grid" id="mood-picker-grid"></div>
+      <button class="pw-btn pw-cancel" style="width:100%;margin-top:12px" onclick="closeMoodPicker()">닫기</button>
+    </div>
+  </div>
+
+  <!-- 아바타 기능 안내 팝업 -->
+  <div class="pw-overlay" id="avatar-hint-overlay">
+    <div class="pw-box">
+      <div style="font-size:40px;margin-bottom:10px">🎨</div>
+      <h3>내 캐릭터 꾸미기 가능!</h3>
+      <p style="color:var(--sand);font-size:13px;line-height:1.6;margin:10px 0 16px">
+        이름 카드 오른쪽 위 <b style="color:var(--ash)">✏️ 버튼</b>을 누르면<br>
+        나만의 캐릭터를 헤어·색상·표정까지<br>골라서 꾸밀 수 있어요!
+      </p>
+      <button class="pw-btn pw-confirm" style="width:100%" onclick="closeAvatarHint()">알겠어요!</button>
+    </div>
+  </div>
+
+</div>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<div id="message-overlay" class="message-overlay" role="dialog" aria-modal="true" aria-label="선생님과 쪽지">
+  <div class="message-box">
+    <div class="message-head">
+      <div class="message-head-avatar">👩‍🏫</div>
+      <div class="message-head-title">
+        <h3>선생님과 쪽지</h3>
+        <div class="message-head-sub" id="message-chat-student">학생 이름</div>
+        <div class="message-role-badge" id="message-role-badge">👩‍🏫 선생님으로 대화 중</div>
+      </div>
+      <span class="message-close" onclick="closeMessageCenter()" aria-label="닫기">&times;</span>
+    </div>
+
+    <div id="message-list" class="message-list"></div>
+
+    <div class="message-reply-wrap">
+      <textarea id="message-reply-input" class="message-reply-input"
+        placeholder="선생님께 답장을 입력하세요"
+        maxlength="500"
+        oninput="updateMessageSendButton()"
+        onkeydown="handleMessageReplyKeydown(event)"></textarea>
+      <button id="message-send-btn" class="message-send-btn" type="button"
+        onclick="sendStudentReply()" disabled aria-label="답장 보내기">➤</button>
+    </div>
+    <div class="message-backend-note"></div>
+  </div>
+</div>
+
+
+<!-- 스터디플래너 -->
+<div id="study-planner-overlay" class="study-planner-overlay" onclick="closeStudyPlannerByBackdrop(event)">
+  <div class="study-planner-box" role="dialog" aria-modal="true" aria-labelledby="study-planner-title">
+    <div class="study-planner-head">
+      <div>
+        <h2 id="study-planner-title">📅 스터디플래너</h2>
+        <p id="study-planner-subtitle">오늘 할 공부를 직접 적어보세요.</p>
+      </div>
+      <button class="study-planner-close" onclick="closeStudyPlanner()" aria-label="닫기">×</button>
+    </div>
+
+    <div id="study-planner-admin-note" class="study-planner-admin-note">👩‍🏫 관리자모드 · 보기 전용</div>
+
+    <div class="study-planner-date-row">
+      <input id="study-planner-date" class="study-planner-date" type="date" onchange="handleStudyPlannerDateChange()">
+      <button class="study-planner-today" onclick="setStudyPlannerToday()">오늘</button>
+    </div>
+
+    <div id="study-planner-summary" class="study-planner-summary"></div>
+
+    <div id="study-planner-input-row" class="study-planner-input-row">
+      <input id="study-planner-input" class="study-planner-input" type="text" maxlength="80" placeholder="예: 수학 문제집 3쪽">
+      <button class="study-planner-add" onclick="addStudyPlan()">추가</button>
+    </div>
+
+    <div id="study-planner-list" class="study-planner-list"></div>
+
+    <div class="study-auto-section">
+      <div class="study-auto-title">
+        <h3>✅ 앱에서 완료한 공부</h3>
+        <span>선택한 날짜</span>
+      </div>
+      <div id="study-auto-list" class="study-auto-list"></div>
+    </div>
+
+    <div class="study-auto-section">
+      <div class="study-auto-title">
+        <h3>🏆 완료한 단원·PART</h3>
+        <span>누적 기록</span>
+      </div>
+      <div id="study-completed-all-list" class="study-auto-list"></div>
+    </div>
+  </div>
+</div>
+
+
+
+
+<div id="focus-mode-bar" class="focus-topbar" role="status" aria-live="polite">
+  <div class="focus-topbar-main">
+    <div class="focus-topbar-icon">🎯</div>
+    <div class="focus-topbar-text">
+      <div id="focus-mode-title" class="focus-topbar-title">집중모드 진행 중</div>
+      <div id="focus-mode-meta" class="focus-topbar-meta">오늘 집중 0분 · 이탈 0회</div>
+    </div>
+  </div>
+  <div id="focus-mode-timer" class="focus-topbar-timer">00:00</div>
+
+</div>
+<div id="focus-return-overlay" class="focus-return-box">
+  <div class="focus-return-card">
+    <div style="font-size:42px;margin-bottom:8px">📱</div>
+    <h3>집중이 잠시 끊겼어요</h3>
+    <p>다른 화면으로 이동한 동안 집중 타이머를 멈췄습니다.<br>다시 공부를 이어갈까요?</p>
+    <button class="focus-start-btn" onclick="resumeFocusAfterLeave()">👏 다시 집중하기</button>
+  </div>
+</div>
+
+
+
+
+
+<div id="developer-test-login-overlay" class="developer-test-login-overlay" onclick="if(event.target===this)closeDeveloperTestLogin()">
+  <div class="developer-test-login-box">
+    <h3>🛠 TEST USER 테스트모드</h3>
+    <p>실제 학생 기록과 서버에는 저장되지 않습니다.</p>
+    <input id="developer-test-login-input" class="developer-test-login-input" type="password" inputmode="text" placeholder="비밀번호">
+    <div id="developer-test-login-error" class="developer-test-login-error"></div>
+    <div class="developer-test-login-actions">
+      <button type="button" class="developer-test-login-cancel" onclick="closeDeveloperTestLogin()">취소</button>
+      <button type="button" class="developer-test-login-confirm" onclick="confirmDeveloperTestLogin()">입장</button>
+    </div>
+  </div>
+</div>
+
+
+</div>
+
+
+
+
+<script>
+(()=>{
+  const APP_SCRIPT_URL='app.js?v=20260813-4';
+  window.__appMainReady=false;
+  window.__pendingShellStudent='';
+  window.__pendingShellAction=''; // 'admin' | 'teacher' — app.js 준비 전 관리자/선생님 버튼 클릭 의도 보존(마지막 값만 유지)
+  let appScript=null;
+
+  const statusEl=()=>document.getElementById('app-shell-status');
+  const setStatus=(message,isError=false)=>{
+    const el=statusEl();
+    if(!el)return;
+    el.style.display='block';
+    el.style.color=isError?'#b91c1c':'var(--sand)';
+    el.innerHTML=isError
+      ? message+' <button type="button" onclick="window.__retryAppMainLoad()" style="margin-left:6px;padding:5px 9px;border:0;border-radius:8px;cursor:pointer">다시 시도</button>'
+      : message;
+  };
+
+  document.addEventListener('click',event=>{
+    if(window.__appMainReady)return;
+    const card=event.target.closest('[data-shell-student]');
+    if(card){
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      window.__pendingShellStudent=card.dataset.shellStudent||'';
+      document.querySelectorAll('[data-shell-student]').forEach(el=>el.classList.toggle('selected',el===card));
+      setStatus(window.__pendingShellStudent+' 학생을 선택했어요. 앱 준비 후 자동으로 이어갈게요.');
+      return;
+    }
+    const earlyAction=event.target.closest('#start-screen [onclick]');
+    if(earlyAction){
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      const onclickAttr=earlyAction.getAttribute('onclick')||'';
+      if(onclickAttr.indexOf('toggleTestMode')!==-1){
+        window.__pendingShellAction='admin';
+        window.__perfMark&&window.__perfMark('관리자버튼클릭','pending저장');
+        setStatus('관리자 모드를 준비하고 있어요. 앱 준비 후 자동으로 이어갈게요.');
+      }else if(onclickAttr.indexOf('showTeacher')!==-1){
+        window.__pendingShellAction='teacher';
+        window.__perfMark&&window.__perfMark('선생님버튼클릭','pending저장');
+        setStatus('선생님 확인 화면을 준비하고 있어요. 앱 준비 후 자동으로 이어갈게요.');
+      }else{
+        // 부모님확인·개발자테스트모드 등 이번 수정 범위 밖 — 기존 동작(안내 메시지만) 그대로 유지
+        setStatus('앱 기능을 준비하고 있어요. 잠시만 기다려주세요.');
+      }
+    }
+  },true);
+
+  const finishLoad=()=>{
+    window.__perfMark&&window.__perfMark('appMainReady=true 처리시작');
+    if(!window.__APP_MAIN_EXECUTED){
+      setStatus('앱 기능을 시작하지 못했어요.',true);
+      return;
+    }
+    window.__appMainReady=true;
+    const el=statusEl();
+    if(el)el.style.display='none';
+    const selected=window.__pendingShellStudent;
+    window.__pendingShellStudent='';
+    if(selected && typeof window.requestSelectStudent==='function'){
+      const card=document.querySelector('.student-card[data-name="'+CSS.escape(selected)+'"]');
+      if(card)queueMicrotask(()=>window.requestSelectStudent(card,selected));
+    }
+    const pendingAction=window.__pendingShellAction;
+    window.__pendingShellAction=''; // 실행 직전에 비워서 중복 실행 방지
+    if(pendingAction==='admin' && typeof window.openAdminLogin==='function'){
+      window.__perfMark&&window.__perfMark('사전클릭 재실행:admin');
+      queueMicrotask(()=>window.openAdminLogin());
+    }else if(pendingAction==='teacher' && typeof window.showTeacher==='function'){
+      window.__perfMark&&window.__perfMark('사전클릭 재실행:teacher');
+      queueMicrotask(()=>window.showTeacher());
+    }
+  };
+
+  const loadApp=()=>{
+    if(appScript)return;
+    setStatus('앱 기능을 준비하고 있어요...');
+    window.__perfMark&&window.__perfMark('app.js 요청시작','src='+APP_SCRIPT_URL.split('?')[0]);
+    appScript=document.createElement('script');
+    appScript.src=APP_SCRIPT_URL;
+    appScript.onload=()=>{ window.__perfMark&&window.__perfMark('app.js 실행시작(onload)'); finishLoad(); };
+    appScript.onerror=()=>{
+      appScript?.remove();
+      appScript=null;
+      setStatus('앱 기능을 불러오지 못했어요.',true);
+    };
+    document.head.appendChild(appScript);
+  };
+
+  window.__retryAppMainLoad=loadApp;
+  // 정적 학생카드가 최소 한 번 그려진 뒤 무거운 앱 코드를 시작합니다.
+  requestAnimationFrame(()=>requestAnimationFrame(loadApp));
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,37 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(node -c app.js)",
+      "Bash(sort -t: -k2)",
+      "Bash(uniq -f1 -c)",
+      "Bash(curl -sI http://localhost:8791/bgm.mp3)",
+      "Bash(curl -s http://localhost:8791/index.html)",
+      "Bash(curl -s http://localhost:8791/app.js)",
+      "Bash(node -c /dev/stdin)",
+      "Bash(md5 bgm.mp3)",
+      "Bash(md5 \"/Users/sujin/Downloads/TalkFile_참 아름다워라 \\(어린이 율동 찬양\\) ｜ @온누리교회차세대 신나는 어린이 찬양 ｜ 어린이찬양-유아찬양-율동찬양-영아부-유아부-유치부 ｜ 키즈벤처 ｜.mp3.mp3\")",
+      "Bash(xxd bgm.mp3)",
+      "Bash(npx --yes playwright --version)",
+      "Bash(npx --yes playwright install chromium --with-deps)",
+      "Bash(npm init *)",
+      "Bash(npm install *)",
+      "Bash(node test_bgm.js)",
+      "Bash(cd *)",
+      "Bash(sed -i '' 's/app\\\\.js?v=20260811-20/app.js?v=20260813-1/g' index.html sw.js)",
+      "Bash(sed -i '' \"s/const CACHE_NAME = 'samguk-culture-quiz-v36-king-order-admin-preview-fix';/const CACHE_NAME = 'samguk-culture-quiz-v37-ht-save-queue-fix';/\" sw.js)",
+      "Bash(node --check app.js)",
+      "Bash(grep -n \"^const \\\\|^window\\\\.\\\\|역사훈련소\\\\|HISTORY_TRAINING\\\\|=\\\\[$\\\\|partNumber\" \"/Users/sujin/Desktop/gongbuhaja-NETLIFY-KING-ORDER-v20/learning-content.js\"2)",
+      "WebSearch",
+      "WebFetch(domain:en.wikipedia.org)",
+      "WebFetch(domain:commons.wikimedia.org)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\\\\n\" \"https://commons.wikimedia.org/wiki/Special:FilePath/Hunminjeongum.jpg?width=400\")",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\\\\n\" \"https://commons.wikimedia.org/wiki/Special:FilePath/KangnidoMap.jpg?width=400\")",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\\\\n\" \"https://commons.wikimedia.org/wiki/Special:FilePath/Cheonsang.jpg?width=400\")",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\\\\n\" \"https://commons.wikimedia.org/wiki/Special:FilePath/Joseon_Wangjo_Sillok_and_its_case_in_museum.jpg?width=400\")",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\\\\n\" \"https://commons.wikimedia.org/wiki/Special:FilePath/Gyeongguk_daejeon_in_the_National_Museum_of_Korea_2016-11.jpg?width=400\")",
+      "Bash(curl -s -o /dev/null -w \"Seoul-Gyeongbokgung-Sundial-02.jpg -> %{http_code}\\\\n\" -L \"https://commons.wikimedia.org/wiki/Special:FilePath/Seoul-Gyeongbokgung-Sundial-02.jpg?width=400\")",
+      "Bash(curl -s -o /dev/null -w \"Hwacha_cropped.jpg -> %{http_code}\\\\n\" -L \"https://commons.wikimedia.org/wiki/Special:FilePath/Hwacha_cropped.jpg?width=400\")",
+      "Bash(curl -s -o /dev/null -w \"ThisFileDoesNotExist12345.jpg -> %{http_code}\\\\n\" -L \"https://commons.wikimedia.org/wiki/Special:FilePath/ThisFileDoesNotExist12345.jpg?width=400\")"
+    ]
+  }
+}
