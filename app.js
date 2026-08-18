@@ -3810,8 +3810,10 @@ const LECTURE_VIDEOS=[
   { group:'past', title:'28강', url:'https://youtu.be/uVnlnrZc3nw' },
   { group:'past', title:'29강', url:'https://youtu.be/BqW42jrO9uc?si=6odC2TsK3rO7tEEU' },
   { group:'past', title:'30강', url:'https://youtu.be/Os8GGDkNNUc?si=RhexAfKvHDjbVXIH' },
-  { group:'today', title:'31강', url:'https://www.youtube.com/watch?v=0DoINo25Uic' },
-  { group:'today', title:'32강', url:'https://www.youtube.com/watch?v=irdi-Dcj2qI' },
+  { group:'past', title:'31강', url:'https://www.youtube.com/watch?v=0DoINo25Uic&list=PLWHFxmcZ4OBC0mi2Xnu7HVAohkUjjty3m&index=31' },
+  { group:'past', title:'32강', url:'https://youtu.be/irdi-Dcj2qI?list=PLWHFxmcZ4OBC0mi2Xnu7HVAohkUjjty3m' },
+  { group:'today', title:'33강', url:'https://www.youtube.com/watch?v=PMNVrwgIl_U' },
+  { group:'today', title:'34강', url:'https://youtu.be/sHi5Z1g0Mxs?list=PLWHFxmcZ4OBC0mi2Xnu7HVAohkUjjty3m' },
 ];
 
 function showLectures(){
