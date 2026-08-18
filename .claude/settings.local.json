@@ -31,7 +31,8 @@
       "Bash(curl -s -o /dev/null -w \"%{http_code}\\\\n\" \"https://commons.wikimedia.org/wiki/Special:FilePath/Gyeongguk_daejeon_in_the_National_Museum_of_Korea_2016-11.jpg?width=400\")",
       "Bash(curl -s -o /dev/null -w \"Seoul-Gyeongbokgung-Sundial-02.jpg -> %{http_code}\\\\n\" -L \"https://commons.wikimedia.org/wiki/Special:FilePath/Seoul-Gyeongbokgung-Sundial-02.jpg?width=400\")",
       "Bash(curl -s -o /dev/null -w \"Hwacha_cropped.jpg -> %{http_code}\\\\n\" -L \"https://commons.wikimedia.org/wiki/Special:FilePath/Hwacha_cropped.jpg?width=400\")",
-      "Bash(curl -s -o /dev/null -w \"ThisFileDoesNotExist12345.jpg -> %{http_code}\\\\n\" -L \"https://commons.wikimedia.org/wiki/Special:FilePath/ThisFileDoesNotExist12345.jpg?width=400\")"
+      "Bash(curl -s -o /dev/null -w \"ThisFileDoesNotExist12345.jpg -> %{http_code}\\\\n\" -L \"https://commons.wikimedia.org/wiki/Special:FilePath/ThisFileDoesNotExist12345.jpg?width=400\")",
+      "Bash(awk -F: '$1>2643')"
     ]
   }
 }

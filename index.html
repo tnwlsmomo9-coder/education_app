@@ -200,6 +200,61 @@
   @import url('https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.css');
   *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
   :root{--stone:#F4F7FC;--rock:#FFFFFF;--sand:#7C8698;--clay:#A9B2C3;--ember:#3D7BF5;--ash:#1C2536;--correct:#34C77B;--wrong:#F0555C}
+
+  /* ==============================================================
+     디자인 토큰 (신규, Design.md 5절 1단계 — 정의만 하고 화면 미적용)
+     - 아래 변수들은 아직 어떤 화면에서도 사용되지 않는다.
+     - 학생색 tint/shade 중 코랄(김주하)만 Design.md 2.2절에서 확정된 값이며,
+       민트/라벤더/레몬은 확정값이 없어 color-mix()로 임시 파생함
+       (미승인 임시값 — 화면 적용 전 디자인 검토로 확정 필요).
+     - box-shadow elevation 값은 Design.md에 구체 수치가 없어 통상적인
+       값으로 초안 작성함 (화면 적용 시 조정 가능).
+     ============================================================== */
+  :root{
+    /* --- 2.2 학생별 포인트 컬러 (확정 ✅) --- */
+    --student-coral:#FF9B8F;
+    --student-coral-tint:#FCE3DE;   /* 확정 */
+    --student-coral-shade:#D85A30;  /* 확정 */
+
+    --student-mint:#7FD8B5;
+    --student-mint-tint:color-mix(in srgb, var(--student-mint) 20%, white);   /* 임시값 */
+    --student-mint-shade:color-mix(in srgb, var(--student-mint) 70%, black);  /* 임시값 */
+
+    --student-lavender:#C6A8E8;
+    --student-lavender-tint:color-mix(in srgb, var(--student-lavender) 20%, white);   /* 임시값 */
+    --student-lavender-shade:color-mix(in srgb, var(--student-lavender) 70%, black);  /* 임시값 */
+
+    --student-lemon:#FFD97D;
+    --student-lemon-tint:color-mix(in srgb, var(--student-lemon) 20%, white);   /* 임시값 */
+    --student-lemon-shade:color-mix(in srgb, var(--student-lemon) 70%, black);  /* 임시값 */
+
+    /* --- 2.2 과목별 보조 컬러 (확정 ✅) --- */
+    --subject-history-bg:#F6DDB3;
+    --subject-history-text:#633806;
+    --subject-math-bg:#CDEBF1;
+    --subject-math-text:#04342C;
+
+    /* --- 2.3 공통 뉴트럴 팔레트 (확정 ✅) --- */
+    --neutral-bg:#FFFBF6;
+    --neutral-surface:#FFFFFF;
+    --neutral-text:#2A2620;
+    --neutral-text-secondary:#8C8578;
+    --neutral-border:rgba(0,0,0,0.06);
+    --neutral-correct:#4FAE6B;
+    --neutral-wrong:#E2575F;
+
+    /* --- 2.5 디자인 토큰화: radius (확정 ✅) --- */
+    --radius-sm:8px;
+    --radius-md:14px;
+    --radius-lg:20px;
+    --radius-pill:999px;
+
+    /* --- 2.5 디자인 토큰화: shadow elevation (초안, 수치 미확정) --- */
+    --shadow-sm:0 2px 6px rgba(0,0,0,0.06);
+    --shadow-md:0 6px 16px rgba(0,0,0,0.10);
+    --shadow-lg:0 12px 28px rgba(0,0,0,0.14);
+  }
+  /* ============================================================== */
   body{font-family:var(--app-font,'Noto Sans KR'),sans-serif;background:var(--stone);min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px;background-image:radial-gradient(ellipse at 20% 0%,rgba(61,123,245,0.08) 0%,transparent 60%),radial-gradient(ellipse at 80% 100%,rgba(61,123,245,0.05) 0%,transparent 50%)}
   .container{width:100%;max-width:680px}
   #test-mode-banner{position:sticky;top:0;z-index:50;background:#5A7AA5;color:white;text-align:center;padding:8px;font-size:12px;font-weight:700;border-radius:0 0 10px 10px;margin-bottom:10px;cursor:pointer}
@@ -959,6 +1014,7 @@ border-radius:50%;background:linear-gradient(135deg,rgba(61,123,245,0.14),rgba(6
 #student-select-view{
   text-align:left;
   padding:4px 0 12px;
+  background:var(--neutral-bg);
 }
 
 #student-select-view > .era-icon{
@@ -988,11 +1044,12 @@ border-radius:50%;background:linear-gradient(135deg,rgba(61,123,245,0.14),rgba(6
   font-size:clamp(28px,6vw,38px);
   line-height:1.18;
   text-align:left;
+  color:var(--neutral-text);
 }
 
 #student-select-view > .subtitle{
   margin-bottom:28px;
-  color:var(--sand);
+  color:var(--neutral-text-secondary);
   font-size:15px;
   text-align:left;
 }
@@ -1016,10 +1073,10 @@ border-radius:50%;background:linear-gradient(135deg,rgba(61,123,245,0.14),rgba(6
   width:100%;
   min-height:174px;
   padding:24px 76px 24px 26px;
-  background:#FFFFFF;
+  background:var(--neutral-surface);
   border:2px solid transparent;
-  border-radius:28px;
-  box-shadow:0 8px 28px rgba(28,37,54,.10);
+  border-radius:var(--radius-lg);
+  box-shadow:var(--shadow-lg);
   cursor:pointer;
   text-align:left;
   transition:
@@ -1090,7 +1147,7 @@ border-radius:50%;background:linear-gradient(135deg,rgba(61,123,245,0.14),rgba(6
 
 #student-select-view .student-name{
   margin-bottom:4px;
-  color:#161A2B;
+  color:var(--neutral-text);
   font-size:24px;
   font-weight:900;
   letter-spacing:-.7px;
@@ -1111,12 +1168,12 @@ border-radius:50%;background:linear-gradient(135deg,rgba(61,123,245,0.14),rgba(6
 
 #student-select-view .student-progress-bar{
   height:11px;
-  border-radius:999px;
+  border-radius:var(--radius-pill);
   background:#EDF0F6;
 }
 
 #student-select-view .student-progress-fill{
-  border-radius:999px;
+  border-radius:var(--radius-pill);
   background:linear-gradient(90deg,#7B61E8,#9D86F2);
 }
 
@@ -1128,7 +1185,7 @@ border-radius:50%;background:linear-gradient(135deg,rgba(61,123,245,0.14),rgba(6
 
 #student-select-view .student-last-access{
   margin-top:10px;
-  color:#7C8698;
+  color:var(--neutral-text-secondary);
   font-size:13px;
 }
 
@@ -1153,11 +1210,11 @@ border-radius:50%;background:linear-gradient(135deg,rgba(61,123,245,0.14),rgba(6
 #student-select-view > .teacher-btn{
   margin-top:10px;
   padding:14px 16px;
-  border-radius:16px;
-  background:#FFFFFF;
-  color:var(--ash);
+  border-radius:var(--radius-md);
+  background:var(--neutral-surface);
+  color:var(--neutral-text);
   text-decoration:none;
-  box-shadow:0 4px 16px rgba(28,37,54,.08);
+  box-shadow:var(--shadow-md);
   font-size:13px;
   font-weight:800;
 }
@@ -1171,7 +1228,7 @@ border-radius:50%;background:linear-gradient(135deg,rgba(61,123,245,0.14),rgba(6
     min-height:150px;
     padding:20px 66px 20px 20px;
     gap:17px;
-    border-radius:24px;
+    border-radius:var(--radius-lg);
   }
 
   #student-select-view .student-avatar{
@@ -1238,9 +1295,9 @@ border-radius:50%;background:linear-gradient(135deg,rgba(61,123,245,0.14),rgba(6
   width:64px;
   height:64px;
   min-width:64px;
-  border-radius:18px;
+  border-radius:var(--radius-lg);
   overflow:hidden;
-  box-shadow:0 8px 22px rgba(61,123,245,.14);
+  box-shadow:var(--shadow-md);
 }
 
 #student-select-view .app-icon svg{
@@ -1258,7 +1315,7 @@ border-radius:50%;background:linear-gradient(135deg,rgba(61,123,245,0.14),rgba(6
 
 #student-select-view .app-title-wrap .title-label{
   margin:0!important;
-  color:#161A2B;
+  color:var(--neutral-text);
   font-size:24px;
   font-weight:900;
   letter-spacing:-.6px;
@@ -1267,7 +1324,7 @@ border-radius:50%;background:linear-gradient(135deg,rgba(61,123,245,0.14),rgba(6
 
 #student-select-view .app-title-wrap .title-sub{
   margin-top:5px;
-  color:#7C8698;
+  color:var(--neutral-text-secondary);
   font-size:14px;
   font-weight:600;
   line-height:1.35;
@@ -1391,6 +1448,40 @@ border-radius:50%;background:linear-gradient(135deg,rgba(61,123,245,0.14),rgba(6
   right:0 !important;
 }
 
+
+/* ==================================================
+   학생별 포인트 컬러 (Design.md 2.2)
+   카드 순서 고정: 1.김주하(코랄) 2.전민건(민트) 3.이하이(라벤더) 4.최단비(레몬)
+   순수 CSS(nth-child)로만 적용 — JS 로직/데이터 흐름은 변경하지 않음
+================================================== */
+#student-select-view .student-card:nth-child(1){--card-accent:var(--student-coral);--card-accent-tint:var(--student-coral-tint);--card-accent-shade:var(--student-coral-shade)}
+#student-select-view .student-card:nth-child(2){--card-accent:var(--student-mint);--card-accent-tint:var(--student-mint-tint);--card-accent-shade:var(--student-mint-shade)}
+#student-select-view .student-card:nth-child(3){--card-accent:var(--student-lavender);--card-accent-tint:var(--student-lavender-tint);--card-accent-shade:var(--student-lavender-shade)}
+#student-select-view .student-card:nth-child(4){--card-accent:var(--student-lemon);--card-accent-tint:var(--student-lemon-tint);--card-accent-shade:var(--student-lemon-shade)}
+
+#student-select-view .student-card .student-avatar{
+  background:var(--card-accent-tint);
+}
+
+#student-select-view .student-card .student-progress-fill{
+  background:var(--card-accent);
+}
+
+#student-select-view .student-card .student-progress-pct{
+  color:var(--card-accent-shade);
+}
+
+#student-select-view .student-card .student-mood{
+  color:var(--card-accent-shade);
+}
+
+#student-select-view .student-card.selected{
+  border-color:var(--card-accent);
+  background:linear-gradient(135deg,var(--neutral-surface) 0%,var(--card-accent-tint) 100%);
+  box-shadow:
+    0 10px 30px color-mix(in srgb, var(--card-accent) 24%, transparent),
+    0 0 0 1px color-mix(in srgb, var(--card-accent) 14%, transparent);
+}
 
 /* ==================================================
    학생 선택 화면 애니메이션
@@ -1537,13 +1628,13 @@ border-radius:50%;background:linear-gradient(135deg,rgba(61,123,245,0.14),rgba(6
 @keyframes selectedBorderGlow{
   0%,100%{
     box-shadow:
-      0 6px 22px rgba(61,123,245,.18),
-      0 0 0 0 rgba(61,123,245,.18);
+      0 6px 22px color-mix(in srgb, var(--card-accent, #7B61E8) 26%, transparent),
+      0 0 0 0 color-mix(in srgb, var(--card-accent, #7B61E8) 26%, transparent);
   }
   50%{
     box-shadow:
-      0 8px 26px rgba(61,123,245,.24),
-      0 0 0 5px rgba(61,123,245,0);
+      0 8px 26px color-mix(in srgb, var(--card-accent, #7B61E8) 34%, transparent),
+      0 0 0 5px transparent;
   }
 }
 
@@ -1934,7 +2025,7 @@ border-radius:50%;background:linear-gradient(135deg,rgba(61,123,245,0.14),rgba(6
 #student-select-view .settings-btn{
   font-size:21px !important;
   font-weight:800 !important;
-  color:#7C8698 !important;
+  color:var(--neutral-text-secondary) !important;
 }
 
 #student-select-view .note-btn:hover,
@@ -1955,9 +2046,9 @@ border-radius:50%;background:linear-gradient(135deg,rgba(61,123,245,0.14),rgba(6
   min-width:7px;
   height:7px;
   padding:0;
-  border-radius:999px;
-  background:#F0555C;
-  border:1.5px solid #FFFFFF;
+  border-radius:var(--radius-pill);
+  background:var(--neutral-wrong);
+  border:1.5px solid var(--neutral-surface);
 }
 
 /* 접속완료 배지는 이름 버튼과 겹치지 않게 유지 */
@@ -2588,41 +2679,23 @@ body{justify-content:center!important}
     <div id="student-select-view">
       <div class="app-header">
         <div class="app-icon" aria-hidden="true">
-          <svg viewBox="0 0 64 64" role="img" aria-label="책과 두루마리 아이콘">
-            <defs>
-              <linearGradient id="appIconBg" x1="0" y1="0" x2="1" y2="1">
-                <stop offset="0%" stop-color="#EEE9FF"/>
-                <stop offset="100%" stop-color="#DDE8FF"/>
-              </linearGradient>
-              <linearGradient id="bookPaper" x1="0" y1="0" x2="1" y2="1">
-                <stop offset="0%" stop-color="#FFF7DB"/>
-                <stop offset="100%" stop-color="#F2D9A6"/>
-              </linearGradient>
-              <linearGradient id="scrollPaper" x1="0" y1="0" x2="1" y2="1">
-                <stop offset="0%" stop-color="#FFF4CF"/>
-                <stop offset="100%" stop-color="#E7C98E"/>
-              </linearGradient>
-            </defs>
+          <svg viewBox="0 0 64 64" role="img" aria-label="책과 학생 컬러 점 로고">
+            <rect x="1" y="1" width="62" height="62" rx="20" fill="var(--neutral-bg,#FFFBF6)" stroke="var(--neutral-border,rgba(0,0,0,0.06))" stroke-width="1"/>
 
-            <rect x="1" y="1" width="62" height="62" rx="17" fill="url(#appIconBg)"/>
+            <!-- 학생별 포인트 컬러 4개 점 -->
+            <circle cx="21.5" cy="12" r="3" fill="var(--student-coral,#FF9B8F)"/>
+            <circle cx="28.5" cy="12" r="3" fill="var(--student-mint,#7FD8B5)"/>
+            <circle cx="35.5" cy="12" r="3" fill="var(--student-lavender,#C6A8E8)"/>
+            <circle cx="42.5" cy="12" r="3" fill="var(--student-lemon,#FFD97D)"/>
 
-            <!-- 펼친 책 -->
-            <path d="M10 18c7-3 13-2 20 3v26c-7-5-13-6-20-3V18z"
-                  fill="url(#bookPaper)" stroke="#8B5A38" stroke-width="2"/>
-            <path d="M54 18c-7-3-13-2-20 3v26c7-5 13-6 20-3V18z"
-                  fill="url(#bookPaper)" stroke="#8B5A38" stroke-width="2"/>
-            <path d="M32 21v27" stroke="#8B5A38" stroke-width="2"/>
-            <path d="M15 25h10M15 30h11M15 35h9M39 25h10M38 30h11M40 35h9"
-                  stroke="#C49661" stroke-width="1.8" stroke-linecap="round"/>
-
-            <!-- 두루마리 -->
-            <g transform="translate(34 8) rotate(12)">
-              <rect x="0" y="4" width="19" height="11" rx="4"
-                    fill="url(#scrollPaper)" stroke="#8B5A38" stroke-width="1.8"/>
-              <circle cx="1.5" cy="9.5" r="3.2" fill="#D4A36C" stroke="#8B5A38" stroke-width="1.5"/>
-              <circle cx="17.5" cy="9.5" r="3.2" fill="#D4A36C" stroke="#8B5A38" stroke-width="1.5"/>
-              <path d="M5 8h9M5 11h7" stroke="#A16D42" stroke-width="1.3" stroke-linecap="round"/>
-            </g>
+            <!-- 펼쳐진 책, 플랫 라인 -->
+            <path d="M10 20c7-3 13-2 20 3v25c-7-5-13-6-20-3V20z"
+                  fill="var(--neutral-surface,#FFFFFF)" stroke="var(--neutral-text,#2A2620)" stroke-width="2" stroke-linejoin="round"/>
+            <path d="M54 20c-7-3-13-2-20 3v25c7-5 13-6 20-3V20z"
+                  fill="var(--neutral-surface,#FFFFFF)" stroke="var(--neutral-text,#2A2620)" stroke-width="2" stroke-linejoin="round"/>
+            <path d="M32 23v27" stroke="var(--neutral-text,#2A2620)" stroke-width="2" stroke-linecap="round"/>
+            <path d="M15 28h9M15 33h10M15 38h8M40 28h9M39 33h10M41 38h8"
+                  stroke="var(--neutral-text-secondary,#8C8578)" stroke-width="1.6" stroke-linecap="round"/>
           </svg>
         </div>
 
@@ -2678,37 +2751,23 @@ body{justify-content:center!important}
       <div class="learning-home-header">
         <div class="app-header learning-app-header">
           <div class="app-icon" aria-hidden="true">
-            <svg viewBox="0 0 64 64" role="img" aria-label="책과 두루마리 아이콘">
-              <defs>
-                <linearGradient id="learningAppIconBg" x1="0" y1="0" x2="1" y2="1">
-                  <stop offset="0%" stop-color="#EEE9FF"/>
-                  <stop offset="100%" stop-color="#DDE8FF"/>
-                </linearGradient>
-                <linearGradient id="learningBookPaper" x1="0" y1="0" x2="1" y2="1">
-                  <stop offset="0%" stop-color="#FFF7DB"/>
-                  <stop offset="100%" stop-color="#F2D9A6"/>
-                </linearGradient>
-                <linearGradient id="learningScrollPaper" x1="0" y1="0" x2="1" y2="1">
-                  <stop offset="0%" stop-color="#FFF4CF"/>
-                  <stop offset="100%" stop-color="#E7C98E"/>
-                </linearGradient>
-              </defs>
+            <svg viewBox="0 0 64 64" role="img" aria-label="책과 학생 컬러 점 로고">
+              <rect x="1" y="1" width="62" height="62" rx="20" fill="var(--neutral-bg,#FFFBF6)" stroke="var(--neutral-border,rgba(0,0,0,0.06))" stroke-width="1"/>
 
-              <rect x="1" y="1" width="62" height="62" rx="17" fill="url(#learningAppIconBg)"/>
-              <path d="M10 18c7-3 13-2 20 3v26c-7-5-13-6-20-3V18z"
-                    fill="url(#learningBookPaper)" stroke="#8B5A38" stroke-width="2"/>
-              <path d="M54 18c-7-3-13-2-20 3v26c7-5 13-6 20-3V18z"
-                    fill="url(#learningBookPaper)" stroke="#8B5A38" stroke-width="2"/>
-              <path d="M32 21v27" stroke="#8B5A38" stroke-width="2"/>
-              <path d="M15 25h10M15 30h11M15 35h9M39 25h10M38 30h11M40 35h9"
-                    stroke="#C49661" stroke-width="1.8" stroke-linecap="round"/>
-              <g transform="translate(34 8) rotate(12)">
-                <rect x="0" y="4" width="19" height="11" rx="4"
-                      fill="url(#learningScrollPaper)" stroke="#8B5A38" stroke-width="1.8"/>
-                <circle cx="1.5" cy="9.5" r="3.2" fill="#D4A36C" stroke="#8B5A38" stroke-width="1.5"/>
-                <circle cx="17.5" cy="9.5" r="3.2" fill="#D4A36C" stroke="#8B5A38" stroke-width="1.5"/>
-                <path d="M5 8h9M5 11h7" stroke="#A16D42" stroke-width="1.3" stroke-linecap="round"/>
-              </g>
+              <!-- 학생별 포인트 컬러 4개 점 -->
+              <circle cx="21.5" cy="12" r="3" fill="var(--student-coral,#FF9B8F)"/>
+              <circle cx="28.5" cy="12" r="3" fill="var(--student-mint,#7FD8B5)"/>
+              <circle cx="35.5" cy="12" r="3" fill="var(--student-lavender,#C6A8E8)"/>
+              <circle cx="42.5" cy="12" r="3" fill="var(--student-lemon,#FFD97D)"/>
+
+              <!-- 펼쳐진 책, 플랫 라인 -->
+              <path d="M10 20c7-3 13-2 20 3v25c-7-5-13-6-20-3V20z"
+                    fill="var(--neutral-surface,#FFFFFF)" stroke="var(--neutral-text,#2A2620)" stroke-width="2" stroke-linejoin="round"/>
+              <path d="M54 20c-7-3-13-2-20 3v25c7-5 13-6 20-3V20z"
+                    fill="var(--neutral-surface,#FFFFFF)" stroke="var(--neutral-text,#2A2620)" stroke-width="2" stroke-linejoin="round"/>
+              <path d="M32 23v27" stroke="var(--neutral-text,#2A2620)" stroke-width="2" stroke-linecap="round"/>
+              <path d="M15 28h9M15 33h10M15 38h8M40 28h9M39 33h10M41 38h8"
+                    stroke="var(--neutral-text-secondary,#8C8578)" stroke-width="1.6" stroke-linecap="round"/>
             </svg>
           </div>
 
