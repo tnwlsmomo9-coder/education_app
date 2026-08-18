@@ -1662,6 +1662,23 @@ try{
   if(savedFont) applyFont(savedFont);
 }catch(e){}
 
+// 학생별 포인트 컬러(Design.md 2.2) — 학생 선택 시 --student-accent 등 CSS 변수 주입
+const STUDENT_ACCENT_VARS={
+  '김주하':{accent:'--student-coral',tint:'--student-coral-tint',shade:'--student-coral-shade'},
+  '전민건':{accent:'--student-mint',tint:'--student-mint-tint',shade:'--student-mint-shade'},
+  '이하이':{accent:'--student-lavender',tint:'--student-lavender-tint',shade:'--student-lavender-shade'},
+  '최단비':{accent:'--student-lemon',tint:'--student-lemon-tint',shade:'--student-lemon-shade'}
+};
+
+function applyStudentAccent(name){
+  const vars=STUDENT_ACCENT_VARS[name];
+  if(!vars)return;
+  const root=document.documentElement.style;
+  root.setProperty('--student-accent',`var(${vars.accent})`);
+  root.setProperty('--student-accent-tint',`var(${vars.tint})`);
+  root.setProperty('--student-accent-shade',`var(${vars.shade})`);
+}
+
 let levelSectionVisible=false;
 
 function selectUnit(el,key){
@@ -5363,6 +5380,7 @@ async function selectStudent(card,name){
   const previousStudent=playerName;
   if(focusModeState.active) endFocusMode(false,true); // 학생 변경 — 이전 학생의 집중모드 종료
   playerName=name;
+  applyStudentAccent(name);
   studyTimeState.currentStudent=name;
   studyTimeState.lastTick=Date.now();
   studyTimeState.lastInteraction=Date.now();
