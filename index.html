@@ -263,7 +263,7 @@
   #test-mode-banner{position:sticky;top:0;z-index:50;background:#5A7AA5;color:white;text-align:center;padding:8px;font-size:12px;font-weight:700;border-radius:0 0 10px 10px;margin-bottom:10px;cursor:pointer}
   #font-picker-btn{position:fixed;top:12px;right:12px;z-index:60;background:rgba(0,0,0,0.35);color:var(--ash);border:1px solid rgba(150,148,180,0.3);border-radius:20px;padding:6px 12px;font-size:11px;font-weight:700;cursor:pointer;backdrop-filter:blur(4px)}
   #font-picker-btn:hover{background:rgba(0,0,0,0.5)}
-  #sound-toggle-btn{position:fixed;top:12px;right:82px;z-index:60;background:rgba(0,0,0,0.35);color:var(--ash);border:1px solid rgba(150,148,180,0.3);border-radius:20px;padding:6px 10px;font-size:11px;font-weight:700;cursor:pointer;backdrop-filter:blur(4px)}
+  #sound-toggle-btn{position:fixed;top:12px;right:82px;z-index:60;width:34px;height:34px;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.35);color:#fff;border:1px solid rgba(150,148,180,0.3);border-radius:50%;padding:0;cursor:pointer;backdrop-filter:blur(4px)}
   #sound-toggle-btn:hover{background:rgba(0,0,0,0.5)}
   .font-opt-list{display:flex;flex-direction:column;gap:8px;margin:14px 0}
   .font-opt-item{background:rgba(61,123,245,0.05);border:1.5px solid rgba(150,148,180,0.18);border-radius:10px;padding:14px;font-size:16px;font-weight:700;color:var(--ash);cursor:pointer;transition:all 0.15s}
@@ -1461,13 +1461,13 @@ border-radius:50%;background:linear-gradient(135deg,rgba(61,123,245,0.14),rgba(6
 
 /* ==================================================
    학생별 포인트 컬러 (Design.md 2.2)
-   카드 순서 고정: 1.김주하(코랄) 2.전민건(민트) 3.이하이(라벤더) 4.최단비(레몬)
-   순수 CSS(nth-child)로만 적용 — JS 로직/데이터 흐름은 변경하지 않음
+   학생 카드 순서를 자유롭게 바꿀 수 있어(드래그 재정렬),
+   자리(nth-child)가 아니라 data-name 속성으로 색을 고정한다.
 ================================================== */
-#student-select-view .student-card:nth-child(1){--card-accent:var(--student-coral);--card-accent-tint:var(--student-coral-tint);--card-accent-shade:var(--student-coral-shade)}
-#student-select-view .student-card:nth-child(2){--card-accent:var(--student-mint);--card-accent-tint:var(--student-mint-tint);--card-accent-shade:var(--student-mint-shade)}
-#student-select-view .student-card:nth-child(3){--card-accent:var(--student-lavender);--card-accent-tint:var(--student-lavender-tint);--card-accent-shade:var(--student-lavender-shade)}
-#student-select-view .student-card:nth-child(4){--card-accent:var(--student-lemon);--card-accent-tint:var(--student-lemon-tint);--card-accent-shade:var(--student-lemon-shade)}
+#student-select-view .student-card[data-name="김주하"]{--card-accent:var(--student-coral);--card-accent-tint:var(--student-coral-tint);--card-accent-shade:var(--student-coral-shade)}
+#student-select-view .student-card[data-name="전민건"]{--card-accent:var(--student-mint);--card-accent-tint:var(--student-mint-tint);--card-accent-shade:var(--student-mint-shade)}
+#student-select-view .student-card[data-name="이하이"]{--card-accent:var(--student-lavender);--card-accent-tint:var(--student-lavender-tint);--card-accent-shade:var(--student-lavender-shade)}
+#student-select-view .student-card[data-name="최단비"]{--card-accent:var(--student-lemon);--card-accent-tint:var(--student-lemon-tint);--card-accent-shade:var(--student-lemon-shade)}
 
 #student-select-view .student-card .student-avatar{
   background:var(--card-accent-tint);
@@ -2720,6 +2720,7 @@ body{justify-content:center!important}
   padding:16px 12px 14px !important;
   gap:0 !important;
   border-radius:var(--radius-lg) !important;
+  border:2px solid var(--card-accent) !important;
 }
 
 #student-select-view .student-avatar{
@@ -2727,7 +2728,8 @@ body{justify-content:center!important}
   height:58px !important;
   min-width:58px !important;
   margin:0 0 8px !important;
-  border:3px solid var(--card-accent) !important;
+  border:none !important;
+  background:transparent !important;
   font-size:24px !important;
 }
 
@@ -2771,9 +2773,11 @@ body{justify-content:center!important}
 #student-select-view .student-note,
 #student-select-view .student-progress-row,
 #student-select-view .student-study-total,
-#student-select-view .student-last-access{
+#student-select-view .student-last-access,
+#student-select-view .student-drag-hint{
   flex-basis:100% !important;
   width:100% !important;
+  text-align:center;
 }
 
 /* 아바타·기분 설정(⋮) 버튼을 이름 옆에서 카드 상단 오른쪽으로 이동 */
@@ -2859,6 +2863,37 @@ body{justify-content:center!important}
   #student-select-view .access-complete-badge{
     left:6px !important;
   }
+}
+
+/* 학생 카드 클릭 시 뜨는 비밀번호(PIN) 확인창도 해당 학생 색으로 */
+#name-confirm-overlay .pw-box{
+  border-color:var(--student-accent,var(--ember)) !important;
+}
+#name-confirm-overlay .pw-input:focus{
+  border-color:var(--student-accent,var(--ember)) !important;
+}
+#name-confirm-overlay .pw-confirm{
+  background:var(--student-accent,var(--ember)) !important;
+}
+
+/* 학생 카드 길게 눌러 순서 바꾸기 */
+#student-select-view .student-card{
+  cursor:grab;
+  touch-action:none;
+}
+#student-select-view .student-card.card-dragging{
+  cursor:grabbing !important;
+  box-shadow:var(--shadow-lg) !important;
+  opacity:.94;
+  transition:none !important;
+}
+#student-select-view .student-drag-hint{
+  margin-top:8px;
+  color:var(--neutral-text-secondary);
+  font-size:11px;
+  letter-spacing:2px;
+  opacity:.55;
+  user-select:none;
 }
 </style>
 

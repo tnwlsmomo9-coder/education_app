@@ -52,9 +52,12 @@ document.addEventListener('click',(e)=>{
 const BGM_PLAYLIST=['bgm.mp3'];
 let bgmTrackIndex=0;
 function getBgmAudioEl_(){ return document.getElementById('bgm-audio'); }
+// 손그림 느낌의 스케치 라인 아이콘(스피커 on/off) — 아이콘 모양만 교체, 토글 로직은 그대로
+const SOUND_ICON_ON_SVG='<svg viewBox="0 0 24 24" width="18" height="18" style="display:block"><defs><filter id="sound-icon-sketch"><feTurbulence type="fractalNoise" baseFrequency="0.9" numOctaves="2" result="n"/><feDisplacementMap in="SourceGraphic" in2="n" scale="1.1"/></filter></defs><g filter="url(#sound-icon-sketch)" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9v6h4l5 4V5L7 9H3z"/><path d="M16 8.5c1.4 1.1 1.4 5.9 0 7"/><path d="M18.6 6c2.8 2.4 2.8 9.6 0 12"/></g></svg>';
+const SOUND_ICON_OFF_SVG='<svg viewBox="0 0 24 24" width="18" height="18" style="display:block"><defs><filter id="sound-icon-sketch"><feTurbulence type="fractalNoise" baseFrequency="0.9" numOctaves="2" result="n"/><feDisplacementMap in="SourceGraphic" in2="n" scale="1.1"/></filter></defs><g filter="url(#sound-icon-sketch)" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9v6h4l5 4V5L7 9H3z"/><path d="M16 9l5.5 6M21.5 9l-5.5 6"/></g></svg>';
 function updateSoundToggleBtn_(){
   const btn=document.getElementById('sound-toggle-btn');
-  if(btn)btn.textContent=isAppSoundMuted()?'🔇':'🔊';
+  if(btn)btn.innerHTML=isAppSoundMuted()?SOUND_ICON_OFF_SVG:SOUND_ICON_ON_SVG;
 }
 function loadBgmTrack_(index){
   const audio=getBgmAudioEl_();
@@ -4065,10 +4068,81 @@ function getStudentCardTotalStudySeconds(name){
   }
 }
 
+// ===== 학생 카드 순서 직접 바꾸기 (길게 눌러 드래그, 이 기기에만 저장) =====
+const STUDENT_CARD_ORDER_KEY='studentCardOrder';
+function getOrderedStudents_(){
+  let order=[];
+  try{ order=JSON.parse(localStorage.getItem(STUDENT_CARD_ORDER_KEY)||'[]'); }catch(e){ order=[]; }
+  if(!Array.isArray(order))order=[];
+  const byName={};
+  STUDENTS.forEach(s=>{ byName[s.name]=s; });
+  const ordered=order.map(n=>byName[n]).filter(Boolean);
+  STUDENTS.forEach(s=>{ if(!ordered.includes(s))ordered.push(s); });
+  return ordered.length===STUDENTS.length?ordered:STUDENTS.slice();
+}
+function saveStudentCardOrderFromDom_(){
+  const grid=document.getElementById('student-grid');
+  if(!grid)return;
+  const names=Array.from(grid.querySelectorAll('.student-card')).map(el=>el.dataset.name).filter(Boolean);
+  try{ localStorage.setItem(STUDENT_CARD_ORDER_KEY,JSON.stringify(names)); }catch(e){}
+}
+function bindCardReorderGesture_(card){
+  let pressTimer=null,startX=0,startY=0,dragging=false,pointerId=null;
+  const cancelPress=()=>{ if(pressTimer){ clearTimeout(pressTimer); pressTimer=null; } };
+  card.addEventListener('pointerdown',(e)=>{
+    if(e.pointerType==='mouse'&&e.button!==0)return;
+    startX=e.clientX; startY=e.clientY; dragging=false; pointerId=e.pointerId;
+    cancelPress();
+    pressTimer=setTimeout(()=>{
+      dragging=true;
+      card.dataset.suppressClick='1';
+      card.classList.add('card-dragging');
+      try{ card.setPointerCapture(pointerId); }catch(err){}
+    },420);
+  });
+  card.addEventListener('pointermove',(e)=>{
+    if(!dragging){
+      if(pressTimer&&(Math.abs(e.clientX-startX)>8||Math.abs(e.clientY-startY)>8))cancelPress();
+      return;
+    }
+    e.preventDefault();
+    const dx=e.clientX-startX,dy=e.clientY-startY;
+    card.style.transform=`translate(${dx}px,${dy}px) scale(1.04)`;
+    card.style.zIndex='20';
+    const grid=document.getElementById('student-grid');
+    if(!grid)return;
+    const others=Array.from(grid.querySelectorAll('.student-card')).filter(el=>el!==card);
+    for(const other of others){
+      const r=other.getBoundingClientRect();
+      if(e.clientX>=r.left&&e.clientX<=r.right&&e.clientY>=r.top&&e.clientY<=r.bottom){
+        const all=Array.from(grid.children);
+        if(all.indexOf(card)<all.indexOf(other)) grid.insertBefore(card,other.nextSibling);
+        else grid.insertBefore(card,other);
+        break;
+      }
+    }
+  });
+  const endDrag=(e)=>{
+    cancelPress();
+    if(dragging){
+      dragging=false;
+      card.classList.remove('card-dragging');
+      card.style.transform='';
+      card.style.zIndex='';
+      try{ card.releasePointerCapture(pointerId); }catch(err){}
+      saveStudentCardOrderFromDom_();
+      setTimeout(()=>{ delete card.dataset.suppressClick; },0);
+    }
+  };
+  card.addEventListener('pointerup',endDrag);
+  card.addEventListener('pointercancel',endDrag);
+  card.addEventListener('pointerleave',()=>{ if(!dragging)cancelPress(); });
+}
+
 function renderStudentCards(){
   const grid=document.getElementById('student-grid');
   grid.innerHTML='';
-  for(const s of STUDENTS){
+  for(const s of getOrderedStudents_()){
     const avatar=avatarMap[s.name]||s.avatar;
     const note=noteMap[s.name];
     const mood=moodMap[s.name];
@@ -4102,10 +4176,15 @@ function renderStudentCards(){
         <div class="student-study-total">⏱ 총 공부시간 ${formatStudySeconds(totalStudySeconds)}</div>
         ${lastAccessText?`<div class="student-last-access">🕐 마지막 접속: ${lastAccessText}</div>`:''}
         ${canViewStudentDetail_()?`<button type="button" class="pw-btn pw-cancel" style="margin-top:6px;font-size:12px;padding:6px 10px" onclick="event.stopPropagation();openStudentDetailPanel('${s.name}')">📋 상세 기록 보기</button>`:''}
+        <div class="student-drag-hint">⠿⠿⠿</div>
       </div>
       <div class="student-card-arrow">›</div>
       <div class="selected-checkmark"><svg viewBox="0 0 24 24" width="44" height="44"><path d="M4 12.5 L9.5 18 L20 6" fill="none" stroke="white" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"/></svg></div>`;
-    c.onclick=()=>requestSelectStudent(c,s.name);
+    c.onclick=()=>{
+      if(c.dataset.suppressClick==='1'){ delete c.dataset.suppressClick; return; }
+      requestSelectStudent(c,s.name);
+    };
+    bindCardReorderGesture_(c);
     if(s.name===playerName){ c.classList.add('selected'); }
     grid.appendChild(c);
   }
@@ -5235,6 +5314,7 @@ async function requestSelectStudent(card,name){
   }
   pendingSelectCard=card;
   pendingSelectName=name;
+  applyStudentAccent(name);
   if(!pinMapReady){
     window.__perfMark&&window.__perfMark('ensurePinMapReady_ 진입','재사용='+(!!pinMapLoadPromise));
     showToast2('🔐 비밀번호 정보를 확인하고 있어요...');
