@@ -45,7 +45,8 @@
       "Bash(node --check /Users/sujin/Desktop/gongbuhaja-NETLIFY-KING-ORDER-v20/app.js)",
       "Bash(git add *)",
       "Bash(git commit -m ' *)",
-      "Bash(git commit *)"
+      "Bash(git commit *)",
+      "Bash(python3 -)"
     ]
   }
 }

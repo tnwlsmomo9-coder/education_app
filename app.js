@@ -4662,6 +4662,11 @@ function updateTestModeUI(){
   }
 }
 
+function toggleTeacherBtnRow(){
+  const row=document.querySelector('#student-select-view .teacher-btn-row');
+  if(row)row.classList.toggle('show');
+}
+
 function toggleTestMode(){
   if(testMode){
     requestExitTestMode();
