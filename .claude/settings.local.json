@@ -32,7 +32,18 @@
       "Bash(curl -s -o /dev/null -w \"Seoul-Gyeongbokgung-Sundial-02.jpg -> %{http_code}\\\\n\" -L \"https://commons.wikimedia.org/wiki/Special:FilePath/Seoul-Gyeongbokgung-Sundial-02.jpg?width=400\")",
       "Bash(curl -s -o /dev/null -w \"Hwacha_cropped.jpg -> %{http_code}\\\\n\" -L \"https://commons.wikimedia.org/wiki/Special:FilePath/Hwacha_cropped.jpg?width=400\")",
       "Bash(curl -s -o /dev/null -w \"ThisFileDoesNotExist12345.jpg -> %{http_code}\\\\n\" -L \"https://commons.wikimedia.org/wiki/Special:FilePath/ThisFileDoesNotExist12345.jpg?width=400\")",
-      "Bash(awk -F: '$1>2643')"
+      "Bash(awk -F: '$1>2643')",
+      "Bash(node --check learning-content.js)",
+      "Bash(node -e ' *)",
+      "Bash(awk '/^const LATE_JOSEON_CHANGE_QUESTIONS=\\\\[/,/^\\\\];/' learning-content.js)",
+      "Read(//tmp/**)",
+      "Bash(awk '/^  lateJoseonChange: \\\\[/,/^  \\\\],/' learning-content.js)",
+      "Bash(awk '/^const YEONGJO_JEONGJO_TANGPYEONG_QUESTIONS=\\\\[/,/^\\\\];/' learning-content.js)",
+      "Bash(awk '/^  yeongjoJeongjoTangpyeong: \\\\[/,/^  \\\\],/' learning-content.js)",
+      "Bash(awk '/^const SEDO_POLITICS_QUESTIONS=\\\\[/,/^\\\\];/' learning-content.js)",
+      "Bash(awk '/^  sedoPolitics: \\\\[/,/^  \\\\],/' learning-content.js)",
+      "Bash(node --check /Users/sujin/Desktop/gongbuhaja-NETLIFY-KING-ORDER-v20/app.js)",
+      "Bash(git add *)"
     ]
   }
 }

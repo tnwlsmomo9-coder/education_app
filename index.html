@@ -1217,20 +1217,23 @@ border-radius:50%;background:linear-gradient(135deg,rgba(61,123,245,0.14),rgba(6
 }
 
 /* 부모님/선생님/관리자 버튼은 카드 아래에 차분하게 배치 */
+#student-select-view .teacher-btn-row .teacher-btn,
 #student-select-view > .teacher-btn{
   margin-top:10px;
   padding:14px 16px;
   border-radius:var(--radius-md);
-  background:var(--neutral-surface);
+  background:color-mix(in srgb, var(--neutral-surface) 65%, transparent);
   color:var(--neutral-text);
   text-decoration:none;
   box-shadow:var(--shadow-md);
   font-size:13px;
   font-weight:800;
+  backdrop-filter:blur(4px);
 }
 
+#student-select-view .teacher-btn-row .teacher-btn:hover,
 #student-select-view > .teacher-btn:hover{
-  background:#F8FAFE;
+  background:color-mix(in srgb, var(--neutral-surface) 80%, transparent);
 }
 
 @media (max-width:480px){
@@ -2709,6 +2712,30 @@ body{justify-content:center!important}
   margin-bottom:var(--space-section) !important;
 }
 
+/* 반응형 기준: 모바일(375) 기본 / 태블릿(768) / 데스크탑(1180) */
+@media (min-width:768px){
+  #student-select-view .student-grid{
+    grid-template-columns:repeat(3,1fr) !important;
+    gap:16px !important;
+  }
+}
+@media (min-width:1180px){
+  #student-select-view .student-grid{
+    grid-template-columns:repeat(4,1fr) !important;
+    gap:18px !important;
+  }
+  #student-select-view .student-card{
+    padding-left:8px !important;
+    padding-right:8px !important;
+  }
+  #student-select-view .student-study-total{
+    font-size:10px !important;
+  }
+  #student-select-view .student-last-access{
+    font-size:9px !important;
+  }
+}
+
 #student-select-view .student-card{
   display:flex !important;
   flex-direction:column !important;
@@ -2757,6 +2784,20 @@ body{justify-content:center!important}
 #student-select-view .student-name-row{
   justify-content:center !important;
   width:auto !important;
+  max-width:100% !important;
+  flex-wrap:wrap !important;
+}
+
+#student-select-view .student-name{
+  min-width:0 !important;
+  overflow-wrap:break-word !important;
+  word-break:keep-all !important;
+}
+
+#student-select-view .student-study-total,
+#student-select-view .student-last-access{
+  white-space:nowrap !important;
+  overflow:visible !important;
 }
 
 /* 기분 이모지만 표시하고 이름 옆에 간격 없이 배치 */
@@ -2895,6 +2936,33 @@ body{justify-content:center!important}
   opacity:.55;
   user-select:none;
 }
+
+/* 부모님 확인 / 선생님 확인 / 관리자 모드 / 테스트 모드 버튼을 한 줄로 */
+#student-select-view .teacher-btn-row{
+  display:flex;
+  gap:6px;
+  margin-top:10px;
+}
+#student-select-view .teacher-btn-row .teacher-btn{
+  flex:1;
+  min-width:0;
+  margin-top:0;
+  padding:10px 4px;
+  font-size:10px;
+  line-height:1.3;
+  white-space:normal;
+  word-break:keep-all;
+  text-align:center;
+}
+@media (max-width:480px){
+  #student-select-view .teacher-btn-row{
+    gap:4px;
+  }
+  #student-select-view .teacher-btn-row .teacher-btn{
+    padding:8px 2px;
+    font-size:9px;
+  }
+}
 </style>
 
 </head>
@@ -2974,10 +3042,12 @@ body{justify-content:center!important}
         <button type="button" class="pw-btn pw-confirm" onclick="retryLearningContentLoad()">학습자료 다시 불러오기</button>
       </div>
 
-      <button class="teacher-btn" onclick="showParentMode()">👨‍👩‍👧 부모님 확인</button>
-      <button class="teacher-btn" onclick="showTeacher()">👩‍🏫 선생님 확인</button>
-      <button class="teacher-btn" id="admin-quick-btn" onclick="toggleTestMode()">👩‍🏫 관리자 모드</button>
-      <button class="teacher-btn developer-test-btn" id="developer-test-btn" onclick="openDeveloperTestLogin()">🛠 TEST USER 테스트모드</button>
+      <div class="teacher-btn-row">
+        <button class="teacher-btn" onclick="showParentMode()">👨‍👩‍👧 부모님 확인</button>
+        <button class="teacher-btn" onclick="showTeacher()">👩‍🏫 선생님 확인</button>
+        <button class="teacher-btn" id="admin-quick-btn" onclick="toggleTestMode()">👩‍🏫 관리자 모드</button>
+        <button class="teacher-btn developer-test-btn" id="developer-test-btn" onclick="openDeveloperTestLogin()">🛠 TEST USER 테스트모드</button>
+      </div>
     </div>
 
     <!-- 2단계: 인증 후 학습 홈 화면 -->

@@ -403,7 +403,7 @@ function apiConfigured(){
 }
 
 const CONTENT_VISIBILITY_STORAGE_KEY='contentVisibility_v1';
-const KING_ORDER_DUE_LABEL='8월 18일까지 완료';
+const KING_ORDER_DUE_LABEL='빨리해라';
 let contentVisibilityCache=null;
 
 // 새 문제 묶음은 이전의 빈 단원 공개값을 물려받지 않고 다시 승인하도록
@@ -425,6 +425,11 @@ const CONTENT_VISIBILITY_VERSIONED_KEYS={
   'unit:goryeoAntiYuanReform':'unit:goryeoAntiYuanReform@questions-v1',
   'unit:goryeoCulture':'unit:goryeoCulture@questions-v1',
   'unit:goryeoReview':'unit:goryeoReview@questions-v1',
+  'unit:imjinJeongyuWar':'unit:imjinJeongyuWar@questions-v1',
+  'unit:jeongmyoByeongjaWar':'unit:jeongmyoByeongjaWar@questions-v1',
+  'unit:lateJoseonChange':'unit:lateJoseonChange@questions-v1',
+  'unit:yeongjoJeongjoTangpyeong':'unit:yeongjoJeongjoTangpyeong@questions-v1',
+  'unit:sedoPolitics':'unit:sedoPolitics@questions-v1',
   'historySummary:historySummary2':'historySummary:historySummary2@content-v1',
   'historyTraining:part17':'historyTraining:part17@content-v1',
   'historyTraining:part18':'historyTraining:part18@content-v1',
@@ -463,6 +468,11 @@ const CONTENT_VISIBILITY_DEFAULTS={
   'unit:goryeoAntiYuanReform@questions-v1':false,
   'unit:goryeoCulture@questions-v1':false,
   'unit:goryeoReview@questions-v1':false,
+  'unit:imjinJeongyuWar@questions-v1':false,
+  'unit:jeongmyoByeongjaWar@questions-v1':false,
+  'unit:lateJoseonChange@questions-v1':false,
+  'unit:yeongjoJeongjoTangpyeong@questions-v1':false,
+  'unit:sedoPolitics@questions-v1':false,
   'historySummary:historySummary2@content-v1':false,
   'historyTraining:part17@content-v1':false,
   'historyTraining:part18@content-v1':false,
@@ -1725,12 +1735,14 @@ const UNIT_GROUP1_KEYS=['prehistoric','politics','culture','review'];
 const UNIT_GROUP2_KEYS=['suidang','unification','balhae','silla','sillaCulture','balhaeCulture','southNorthExchange','southNorthReview'];
 const UNIT_GROUP3_KEYS=['goryeoFounding','goryeoGovernment','goryeoMilitaryRegime','goryeoKhitanJurchen','goryeoMongol','goryeoYuanInterference','goryeoAntiYuanReform','goryeoCulture','goryeoReview'];
 const UNIT_GROUP4_KEYS=['joseonFounding','joseonEarlyKings','joseonGovernment','joseonDiplomacy','sarimEmergence','factionFormation','joseonCulture','imjinJeongyuWar','jeongmyoByeongjaWar'];
+const UNIT_GROUP5_KEYS=['lateJoseonChange','yeongjoJeongjoTangpyeong','sedoPolitics'];
 
 function getUnitGroupInfo(unitKey){
   if(UNIT_GROUP1_KEYS.includes(unitKey)) return {label:'UNIT1', id:'unit-group-1'};
   if(UNIT_GROUP2_KEYS.includes(unitKey)) return {label:'UNIT2', id:'unit-group-2'};
   if(UNIT_GROUP3_KEYS.includes(unitKey)) return {label:'UNIT3', id:'unit-group-3'};
   if(UNIT_GROUP4_KEYS.includes(unitKey)) return {label:'UNIT4', id:'unit-group-4'};
+  if(UNIT_GROUP5_KEYS.includes(unitKey)) return {label:'UNIT5', id:'unit-group-5'};
   return {label:'UNIT2', id:'unit-group-2'};
 }
 
@@ -1759,11 +1771,16 @@ function renderUnitGrid(){
       <span>UNIT4</span><span id="unit-group-4-arrow">▾</span>
     </div>
     <div class="unit-group-body" id="unit-group-4" style="display:none"></div>
+    <div class="unit-group-toggle" onclick="toggleUnitGroup('unit-group-5')">
+      <span>UNIT5</span><span id="unit-group-5-arrow">▾</span>
+    </div>
+    <div class="unit-group-body" id="unit-group-5" style="display:none"></div>
   `;
   renderUnitGroupBody('unit-group-1',UNIT_GROUP1_KEYS);
   renderUnitGroupBody('unit-group-2',UNIT_GROUP2_KEYS);
   renderUnitGroupBody('unit-group-3',UNIT_GROUP3_KEYS);
   renderUnitGroupBody('unit-group-4',UNIT_GROUP4_KEYS);
+  renderUnitGroupBody('unit-group-5',UNIT_GROUP5_KEYS);
 
   // 역사학습콘텐츠 카드 구성 (사건배열은 운영 제외, 데이터·기록만 보존)
   const gameSection=document.getElementById('timeline-game-section');
@@ -2947,6 +2964,18 @@ function resolveHistoryTrainingResumeTarget(name){
 function buildIncompleteLearningItems(name){
   const items=[];
 
+  if(typeof calculateKingOrderProgress==='function'){
+    const kingProgress=calculateKingOrderProgress(name);
+    if(kingProgress.includeInOverall!==false&&!kingProgress.completed){
+      items.push({
+        type:'item',
+        area:`역사학습콘텐츠 · ${KING_ORDER_DUE_LABEL}`,
+        label:'역대 왕 계보',
+        progress:kingProgress
+      });
+    }
+  }
+
   getActiveUnitKeys().forEach(key=>{
     const u=UNITS[key];
     const progress = UNITS[key].examMode ? calculateSummaryQuizProgress(name,key) : calculateUnitProgress(name,key);
@@ -2991,18 +3020,6 @@ function buildIncompleteLearningItems(name){
     const tg=calculateTimelineGameProgress(name);
     if(tg.percent<100){
       items.push({type:'item', area:'역사학습콘텐츠', label:'사건 배열하기', progress:tg});
-    }
-  }
-
-  if(typeof calculateKingOrderProgress==='function'){
-    const kingProgress=calculateKingOrderProgress(name);
-    if(kingProgress.includeInOverall!==false&&!kingProgress.completed){
-      items.push({
-        type:'item',
-        area:`역사학습콘텐츠 · ${KING_ORDER_DUE_LABEL}`,
-        label:'역대 왕 계보',
-        progress:kingProgress
-      });
     }
   }
 
@@ -3108,7 +3125,7 @@ function getKingOrderIncompleteItems(name){
     title:'역대 왕 계보', subtitle:`역사학습콘텐츠 · ${KING_ORDER_DUE_LABEL}`,
     percent:progress.percent, status:progress.status,
     resumeTarget:progress.resumeTarget,
-    sortOrder:1003
+    sortOrder:-1
   }];
 }
 function getKingOrderResumeTarget(name){
@@ -3832,8 +3849,12 @@ const LECTURE_VIDEOS=[
   { group:'past', title:'30강', url:'https://youtu.be/Os8GGDkNNUc?si=RhexAfKvHDjbVXIH' },
   { group:'past', title:'31강', url:'https://www.youtube.com/watch?v=0DoINo25Uic&list=PLWHFxmcZ4OBC0mi2Xnu7HVAohkUjjty3m&index=31' },
   { group:'past', title:'32강', url:'https://youtu.be/irdi-Dcj2qI?list=PLWHFxmcZ4OBC0mi2Xnu7HVAohkUjjty3m' },
-  { group:'today', title:'33강', url:'https://www.youtube.com/watch?v=PMNVrwgIl_U' },
-  { group:'today', title:'34강', url:'https://youtu.be/sHi5Z1g0Mxs?list=PLWHFxmcZ4OBC0mi2Xnu7HVAohkUjjty3m' },
+  { group:'past', title:'33강', url:'https://www.youtube.com/watch?v=PMNVrwgIl_U' },
+  { group:'past', title:'34강', url:'https://youtu.be/sHi5Z1g0Mxs?list=PLWHFxmcZ4OBC0mi2Xnu7HVAohkUjjty3m' },
+  { group:'past', title:'35강', url:'https://youtu.be/aimRbf8x-wQ?si=XBHBfYTpHKW1Cxcv' },
+  { group:'past', title:'36강', url:'https://youtu.be/Y-kvHCDb65s?si=BDCUCXEi01uIBcW3' },
+  { group:'past', title:'37강', url:'https://youtu.be/ia_tIlqgVYE?si=DMAhSova_Cqacrg9' },
+  { group:'today', title:'38강', url:'https://youtu.be/N6i5RPNR3nQ' },
 ];
 
 function showLectures(){
@@ -6462,10 +6483,10 @@ function renderKingOrderCopy(feedback=''){
   const pages=Math.ceil(core.length/pageSize);
   const chunk=core.slice(kingOrderCopyPage*pageSize,(kingOrderCopyPage+1)*pageSize);
   const target=chunk.map(king=>king.name).join(' → ');
-  renderKingOrderShell(`✍️ ${era.title} 핵심 왕 따라쓰기`,`보이는 순서대로 왕 이름을 입력하세요.`,
+  renderKingOrderShell(`✍️ ${era.title} 핵심 왕 따라쓰기`,`보이는 순서대로 왕 이름을 입력하세요. (화살표 → 는 입력하지 않아도 됩니다)`,
     `<div class="king-stage-tabs"><span>1 전체 읽기</span><span>2 핵심 카드</span><span class="active">3 따라쓰기</span><span>4 핵심 문제</span><span>5 순서</span></div>
     <div class="king-copy-card"><div class="king-copy-target">${kingOrderEscape(target)}</div>
-      <textarea id="king-copy-input" class="king-copy-input" rows="3" placeholder="왕 이름을 순서대로 써보세요"></textarea>
+      <textarea id="king-copy-input" class="king-copy-input" rows="3" placeholder="왕 이름을 순서대로 써보세요" onpaste="return false;" oncopy="return false;" oncut="return false;" ondragstart="return false;" ondrop="return false;"></textarea>
       <div class="king-copy-feedback ${feedback?'show':''}">${kingOrderEscape(feedback)}</div>
       <button class="king-primary full" onclick="checkKingOrderCopy()">확인하기</button>
     </div>
