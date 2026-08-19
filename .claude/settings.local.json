@@ -46,7 +46,10 @@
       "Bash(git add *)",
       "Bash(git commit -m ' *)",
       "Bash(git commit *)",
-      "Bash(python3 -)"
+      "Bash(python3 -)",
+      "WebFetch(domain:cdn.jsdelivr.net)",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "Bash(uniz -c)"
     ]
   }
 }

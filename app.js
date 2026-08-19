@@ -1653,8 +1653,8 @@ function applyFont(fontId){
 }
 
 function openFontPicker(){
-  let saved='Noto Sans KR';
-  try{ saved=localStorage.getItem('appFont')||'Noto Sans KR'; }catch(e){}
+  let saved='Pretendard';
+  try{ saved=localStorage.getItem('appFont')||'Pretendard'; }catch(e){}
   document.getElementById('font-opt-list').innerHTML=FONT_OPTIONS.map(f=>
     `<div class="font-opt-item${f.id===saved?' chosen':''}" style="font-family:'${f.id}'" onclick="chooseFontOption('${f.id}')">${f.label}</div>`
   ).join('');
@@ -4090,6 +4090,20 @@ function getStudentCardTotalStudySeconds(name){
 }
 
 // ===== 학생 카드 순서 직접 바꾸기 (길게 눌러 드래그, 이 기기에만 저장) =====
+const LAST_LOGIN_STUDENT_KEY='lastLoginStudent';
+let previewPrimaryName='';
+function getPrimaryStudentName_(){
+  try{ return previewPrimaryName||localStorage.getItem(LAST_LOGIN_STUDENT_KEY)||''; }catch(e){ return previewPrimaryName||''; }
+}
+function rememberLastLoginStudent_(name){
+  previewPrimaryName='';
+  try{ localStorage.setItem(LAST_LOGIN_STUDENT_KEY,name); }catch(e){}
+}
+// 다른 학생 카드를 눌러 "미리보기"만 하고 싶을 때 — 로그인(PIN)은 하지 않고 그 학생 카드만 크게 보여줌
+function previewStudentCard(name){
+  previewPrimaryName=name;
+  renderStudentCards();
+}
 const STUDENT_CARD_ORDER_KEY='studentCardOrder';
 function getOrderedStudents_(){
   let order=[];
@@ -4163,7 +4177,14 @@ function bindCardReorderGesture_(card){
 function renderStudentCards(){
   const grid=document.getElementById('student-grid');
   grid.innerHTML='';
-  for(const s of getOrderedStudents_()){
+  const orderedStudents=getOrderedStudents_();
+  const primaryName=getPrimaryStudentName_();
+  const hasPrimary=!!primaryName && orderedStudents.some(s=>s.name===primaryName);
+  const renderList=hasPrimary
+    ? [...orderedStudents.filter(s=>s.name===primaryName), ...orderedStudents.filter(s=>s.name!==primaryName)]
+    : orderedStudents;
+  grid.classList.toggle('has-primary',hasPrimary);
+  for(const s of renderList){
     const avatar=avatarMap[s.name]||s.avatar;
     const note=noteMap[s.name];
     const mood=moodMap[s.name];
@@ -4175,7 +4196,7 @@ function renderStudentCards(){
     const myAccess=accessLogCache.filter(a=>a.name===s.name).sort((a,b)=>(b.ts||0)-(a.ts||0));
     const lastAccessText=myAccess.length>0?myAccess[0].time:null;
     const c=document.createElement('div');
-    c.className='student-card'+(note?' has-note':'');
+    c.className='student-card'+(note?' has-note':'')+(hasPrimary?(s.name===primaryName?' primary-card':' compact-card'):'');
     c.dataset.name=s.name;
     c.innerHTML=`${isLoggedIn?'<div class="access-complete-badge">🟡 접속완료</div>':''}
       <div class="student-avatar">${renderAvatarHtml(avatar,34)}</div>
@@ -4203,6 +4224,7 @@ function renderStudentCards(){
       <div class="selected-checkmark"><svg viewBox="0 0 24 24" width="44" height="44"><path d="M4 12.5 L9.5 18 L20 6" fill="none" stroke="white" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"/></svg></div>`;
     c.onclick=()=>{
       if(c.dataset.suppressClick==='1'){ delete c.dataset.suppressClick; return; }
+      if(hasPrimary&&s.name!==primaryName){ previewStudentCard(s.name); return; } // 다른 학생 카드는 미리보기(크게)만, 로그인은 안 함
       requestSelectStudent(c,s.name);
     };
     bindCardReorderGesture_(c);
@@ -5487,6 +5509,7 @@ async function selectStudent(card,name){
   if(focusModeState.active) endFocusMode(false,true); // 학생 변경 — 이전 학생의 집중모드 종료
   playerName=name;
   applyStudentAccent(name);
+  rememberLastLoginStudent_(name);
   studyTimeState.currentStudent=name;
   studyTimeState.lastTick=Date.now();
   studyTimeState.lastInteraction=Date.now();

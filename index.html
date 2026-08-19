@@ -198,6 +198,22 @@
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Gaegu:wght@300;400;700&family=Noto+Sans+KR:wght@400;500;700;900&family=Gowun+Dodum&family=Nanum+Myeongjo:wght@400;700;800&display=swap');
   @import url('https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.css');
+  @font-face{
+    font-family:'Paperlogy';
+    src:url('https://cdn.jsdelivr.net/gh/fonts-archive/Paperlogy/Paperlogy-7Bold.woff2') format('woff2'),
+        url('https://cdn.jsdelivr.net/gh/fonts-archive/Paperlogy/Paperlogy-7Bold.woff') format('woff');
+    font-weight:700;
+    font-style:normal;
+    font-display:swap;
+  }
+  @font-face{
+    font-family:'Paperlogy';
+    src:url('https://cdn.jsdelivr.net/gh/fonts-archive/Paperlogy/Paperlogy-6SemiBold.woff2') format('woff2'),
+        url('https://cdn.jsdelivr.net/gh/fonts-archive/Paperlogy/Paperlogy-6SemiBold.woff') format('woff');
+    font-weight:600;
+    font-style:normal;
+    font-display:swap;
+  }
   *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
   :root{--stone:#F4F7FC;--rock:#FFFFFF;--sand:#7C8698;--clay:#A9B2C3;--ember:#3D7BF5;--ash:#1C2536;--correct:#34C77B;--wrong:#F0555C}
 
@@ -258,7 +274,7 @@
     --space-section:18px;
   }
   /* ============================================================== */
-  body{font-family:var(--app-font,'Noto Sans KR'),sans-serif;background:var(--stone);min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px;background-image:radial-gradient(ellipse at 20% 0%,rgba(61,123,245,0.08) 0%,transparent 60%),radial-gradient(ellipse at 80% 100%,rgba(61,123,245,0.05) 0%,transparent 50%)}
+  body{font-family:var(--app-font,'Pretendard'),sans-serif;background:var(--stone);min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px;background-image:radial-gradient(ellipse at 20% 0%,rgba(61,123,245,0.08) 0%,transparent 60%),radial-gradient(ellipse at 80% 100%,rgba(61,123,245,0.05) 0%,transparent 50%)}
   .container{width:100%;max-width:680px}
   #test-mode-banner{position:sticky;top:0;z-index:50;background:#5A7AA5;color:white;text-align:center;padding:8px;font-size:12px;font-weight:700;border-radius:0 0 10px 10px;margin-bottom:10px;cursor:pointer}
   #font-picker-btn{position:fixed;top:12px;right:12px;z-index:60;background:rgba(0,0,0,0.35);color:var(--ash);border:1px solid rgba(150,148,180,0.3);border-radius:20px;padding:6px 12px;font-size:11px;font-weight:700;cursor:pointer;backdrop-filter:blur(4px)}
@@ -1051,16 +1067,16 @@ border-radius:50%;background:linear-gradient(135deg,rgba(61,123,245,0.14),rgba(6
 
 #student-select-view #home-heading{
   margin-bottom:10px;
-  font-size:clamp(28px,6vw,38px);
+  font-size:clamp(20px,4.5vw,26px);
   line-height:1.18;
   text-align:left;
   color:var(--neutral-text);
 }
 
 #student-select-view > .subtitle{
-  margin-bottom:28px;
+  margin-bottom:20px;
   color:var(--neutral-text-secondary);
-  font-size:15px;
+  font-size:12px;
   text-align:left;
 }
 
@@ -2964,6 +2980,104 @@ body{justify-content:center!important}
   }
 }
 
+/* 마지막으로 로그인한 학생 카드는 크게, 나머지 세 학생은 그 아래 한 줄로 배치 */
+#student-select-view .student-grid.has-primary{
+  grid-template-columns:repeat(3,1fr) !important;
+}
+#student-select-view .student-grid.has-primary .student-card.primary-card{
+  grid-column:1/-1 !important;
+  padding:24px 20px !important;
+}
+#student-select-view .student-grid.has-primary .student-card.primary-card .student-avatar{
+  width:112px !important;
+  height:112px !important;
+  min-width:112px !important;
+  font-size:48px !important;
+  margin-bottom:14px !important;
+}
+#student-select-view .student-grid.has-primary .student-card.primary-card .student-name{
+  font-size:22px !important;
+}
+#student-select-view .student-grid.has-primary .student-card.primary-card .student-progress-bar{
+  height:12px !important;
+}
+#student-select-view .student-grid.has-primary .student-card.primary-card .student-progress-pct{
+  font-size:16px !important;
+}
+#student-select-view .student-grid.has-primary .student-card.compact-card{
+  padding:10px 6px !important;
+}
+#student-select-view .student-grid.has-primary .student-card.compact-card .student-avatar{
+  width:48px !important;
+  height:48px !important;
+  min-width:48px !important;
+  font-size:20px !important;
+  margin-bottom:5px !important;
+}
+#student-select-view .student-grid.has-primary .student-card.compact-card .student-name{
+  font-size:13px !important;
+}
+#student-select-view .student-grid.has-primary .student-card.compact-card .student-progress-pct{
+  font-size:9px !important;
+}
+#student-select-view .student-grid.has-primary .student-card.compact-card .student-study-total,
+#student-select-view .student-grid.has-primary .student-card.compact-card .student-last-access,
+#student-select-view .student-grid.has-primary .student-card.compact-card .student-mood,
+#student-select-view .student-grid.has-primary .student-card.compact-card .student-note{
+  display:none !important;
+}
+#student-select-view .student-grid.has-primary .student-card.compact-card .settings-btn{
+  transform:scale(.8);
+}
+
+/* 타이포그래피 통일: 제목 Paperlogy 7_Bold + 본문 Pretendard */
+h1,h2,h3,.title-label{
+  font-family:'Paperlogy','Pretendard',sans-serif;
+  font-weight:700;
+}
+/* 이름(학생 이름 표시) — Paperlogy 6_Bold */
+.student-name,
+#selected-name-banner .sel-name-text{
+  font-family:'Paperlogy','Pretendard',sans-serif;
+  font-weight:600;
+}
+
+/* 학생카드 — 기분 이모지 표시 제거, 이름 가운데정렬 */
+#student-select-view .student-mood{
+  display:none !important;
+}
+#student-select-view .student-name-row{
+  display:block !important;
+  width:100% !important;
+  text-align:center !important;
+}
+#student-select-view .student-name{
+  display:inline-block !important;
+  width:auto !important;
+  text-align:center !important;
+  margin:0 !important;
+}
+
+/* 학습홈 배너 — 이름을 아바타 기준 아래에 배치(가로 배치 → 세로 스택) */
+#selected-name-banner .home-summary-top{
+  flex-direction:column;
+  align-items:center;
+  text-align:center;
+}
+/* 학습홈 배너 — 아바타는 숨기고 이름만 표시 */
+#selected-name-banner .sel-name-avatar{
+  display:none;
+}
+#selected-name-banner .sel-name-text{
+  font-size:22px !important;
+}
+#selected-name-banner .home-summary-name-wrap{
+  align-items:center;
+}
+#selected-name-banner .learning-name-message-row{
+  justify-content:center;
+}
+
 /* 로고 클릭 시에만 부모님/선생님/관리자/테스트모드 버튼줄 노출 */
 #student-select-view .teacher-btn-row{
   display:none;
@@ -3132,7 +3246,7 @@ body{justify-content:center!important}
           <div class="title-sub">스스로 공부하는 힘을 키워요!</div>
         </div>
       </div>
-      <h1 id="home-heading">이름을 선택해주세요</h1>
+      <h1 id="home-heading">내 학습을 이어가볼까요?</h1>
       <p class="subtitle">계정을 선택하면 학습을 이어서 할 수 있어요.</p>
 
       <div class="section-label" style="display:flex;justify-content:flex-start;align-items:center;gap:8px">
