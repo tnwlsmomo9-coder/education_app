@@ -43,7 +43,9 @@
       "Bash(awk '/^const SEDO_POLITICS_QUESTIONS=\\\\[/,/^\\\\];/' learning-content.js)",
       "Bash(awk '/^  sedoPolitics: \\\\[/,/^  \\\\],/' learning-content.js)",
       "Bash(node --check /Users/sujin/Desktop/gongbuhaja-NETLIFY-KING-ORDER-v20/app.js)",
-      "Bash(git add *)"
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)",
+      "Bash(git commit *)"
     ]
   }
 }
