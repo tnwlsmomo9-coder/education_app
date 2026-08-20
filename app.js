@@ -309,7 +309,7 @@ function loadLearningContent(){
     },__CONTENT_LOAD_TIMEOUT_MS);
 
     const script=document.createElement('script');
-    script.src='learning-content.js?v=20260813-content-13';
+    script.src='learning-content.js?v=20260820-content-15';
     __contentScriptEl=script;
     window.__perfMark&&window.__perfMark('learning-content.js 요청시작');
     script.onload=()=>{
@@ -430,6 +430,7 @@ const CONTENT_VISIBILITY_VERSIONED_KEYS={
   'unit:lateJoseonChange':'unit:lateJoseonChange@questions-v1',
   'unit:yeongjoJeongjoTangpyeong':'unit:yeongjoJeongjoTangpyeong@questions-v1',
   'unit:sedoPolitics':'unit:sedoPolitics@questions-v1',
+  'unit:ruralSocietyChange':'unit:ruralSocietyChange@questions-v1',
   'historySummary:historySummary2':'historySummary:historySummary2@content-v1',
   'historyTraining:part17':'historyTraining:part17@content-v1',
   'historyTraining:part18':'historyTraining:part18@content-v1',
@@ -444,6 +445,13 @@ const CONTENT_VISIBILITY_VERSIONED_KEYS={
   'historyTraining:part27':'historyTraining:part27@content-v1'
   ,'historyTraining:part28':'historyTraining:part28@content-v1'
   ,'historyTraining:part29':'historyTraining:part29@content-v1'
+  ,'historyTraining:part30':'historyTraining:part30@content-v1'
+  ,'historyTraining:part31':'historyTraining:part31@content-v1'
+  ,'historyTraining:part32':'historyTraining:part32@content-v1'
+  ,'historyTraining:part33':'historyTraining:part33@content-v1'
+  ,'historyTraining:part34':'historyTraining:part34@content-v1'
+  ,'historyTraining:part35':'historyTraining:part35@content-v1'
+  ,'historyTraining:part36':'historyTraining:part36@content-v1'
   ,'kingOrder:goguryeo':'kingOrder:goguryeo@content-v1'
   ,'kingOrder:baekje':'kingOrder:baekje@content-v1'
   ,'kingOrder:silla':'kingOrder:silla@content-v1'
@@ -473,6 +481,7 @@ const CONTENT_VISIBILITY_DEFAULTS={
   'unit:lateJoseonChange@questions-v1':false,
   'unit:yeongjoJeongjoTangpyeong@questions-v1':false,
   'unit:sedoPolitics@questions-v1':false,
+  'unit:ruralSocietyChange@questions-v1':false,
   'historySummary:historySummary2@content-v1':false,
   'historyTraining:part17@content-v1':false,
   'historyTraining:part18@content-v1':false,
@@ -487,6 +496,13 @@ const CONTENT_VISIBILITY_DEFAULTS={
   'historyTraining:part27@content-v1':false
   ,'historyTraining:part28@content-v1':false
   ,'historyTraining:part29@content-v1':false
+  ,'historyTraining:part30@content-v1':false
+  ,'historyTraining:part31@content-v1':false
+  ,'historyTraining:part32@content-v1':false
+  ,'historyTraining:part33@content-v1':false
+  ,'historyTraining:part34@content-v1':false
+  ,'historyTraining:part35@content-v1':false
+  ,'historyTraining:part36@content-v1':false
   ,'kingOrder:goguryeo@content-v1':false
   ,'kingOrder:baekje@content-v1':false
   ,'kingOrder:silla@content-v1':false
@@ -1735,7 +1751,7 @@ const UNIT_GROUP1_KEYS=['prehistoric','politics','culture','review'];
 const UNIT_GROUP2_KEYS=['suidang','unification','balhae','silla','sillaCulture','balhaeCulture','southNorthExchange','southNorthReview'];
 const UNIT_GROUP3_KEYS=['goryeoFounding','goryeoGovernment','goryeoMilitaryRegime','goryeoKhitanJurchen','goryeoMongol','goryeoYuanInterference','goryeoAntiYuanReform','goryeoCulture','goryeoReview'];
 const UNIT_GROUP4_KEYS=['joseonFounding','joseonEarlyKings','joseonGovernment','joseonDiplomacy','sarimEmergence','factionFormation','joseonCulture','imjinJeongyuWar','jeongmyoByeongjaWar'];
-const UNIT_GROUP5_KEYS=['lateJoseonChange','yeongjoJeongjoTangpyeong','sedoPolitics'];
+const UNIT_GROUP5_KEYS=['lateJoseonChange','yeongjoJeongjoTangpyeong','sedoPolitics','ruralSocietyChange'];
 
 function getUnitGroupInfo(unitKey){
   if(UNIT_GROUP1_KEYS.includes(unitKey)) return {label:'UNIT1', id:'unit-group-1'};
@@ -10282,7 +10298,7 @@ if ('serviceWorker' in navigator) {
           window.__perfMark('현재 캐시 이름목록', names.join(','));
         });
       }
-      window.__perfMark('현재 app.js/콘텐츠 버전','app.js=app.js?v=20260813-3 / content='+(window.LEARNING_CONTENT_VERSION||'(미확인)'));
+      window.__perfMark('현재 app.js/콘텐츠 버전','app.js='+(window.__APP_SCRIPT_URL||'(미확인)')+' / content='+(window.LEARNING_CONTENT_VERSION||'(미확인)'));
     }
   });
 }

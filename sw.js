@@ -1,8 +1,8 @@
-const CACHE_NAME = 'samguk-culture-quiz-v39-ht-per-student-fetch';
+const CACHE_NAME = 'samguk-culture-quiz-v40-fetch-scheme-guard';
 const ASSETS = [
   './index.html',
-  './app.js?v=20260813-4',
-  './learning-content.js?v=20260813-content-13',
+  './app.js?v=20260820-1',
+  './learning-content.js?v=20260820-content-15',
   './manifest.json',
   './icon-192.png',
   './icon-512.png'
@@ -37,6 +37,10 @@ async function refreshShellInBackground_(request, cacheKey){
 
 self.addEventListener('fetch', (event) => {
   const url = new URL(event.request.url);
+  // http(s)가 아닌 요청(예: 브라우저 확장 프로그램의 chrome-extension:// 요청)은
+  // Cache API가 저장을 지원하지 않으므로 손대지 않고 브라우저 기본 처리에 맡깁니다.
+  if(url.protocol!=='http:'&&url.protocol!=='https:')return;
+
   // 구글 앱스스크립트(API) 요청은 캐시하지 않고 항상 네트워크로 보냄
   if (url.hostname.includes('script.google.com')) {
     return;
@@ -89,12 +93,16 @@ self.addEventListener('fetch', (event) => {
     event.respondWith((async()=>{
       const cached=await caches.match(event.request);
       if(cached)return cached;
-      const response=await fetch(event.request);
-      if(response&&response.ok){
-        const cache=await caches.open(CACHE_NAME);
-        await cache.put(event.request,response.clone());
+      try{
+        const response=await fetch(event.request);
+        if(response&&response.ok){
+          const cache=await caches.open(CACHE_NAME);
+          await cache.put(event.request,response.clone());
+        }
+        return response;
+      }catch(error){
+        return Response.error();
       }
-      return response;
     })());
     return;
   }

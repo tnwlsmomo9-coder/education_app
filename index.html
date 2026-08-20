@@ -5,8 +5,8 @@
 <!-- app.js/learning-content.js는 아래에서 rAF 이후 동적으로 <script> 삽입되어 실행되지만,
      다운로드 자체는 여기서 미리 시작해두면 두 파일이 순차가 아니라 병렬로 받아져 초기 로딩이 빨라집니다.
      버전 쿼리(?v=...)는 실제 <script src=...> 값과 반드시 동일하게 유지해야 브라우저가 프리로드를 재사용합니다. -->
-<link rel="preload" as="script" href="app.js?v=20260813-4">
-<link rel="preload" as="script" href="learning-content.js?v=20260813-content-13">
+<link rel="preload" as="script" href="app.js?v=20260820-1">
+<link rel="preload" as="script" href="learning-content.js?v=20260820-content-15">
 <script>
 // ===== ?perf=1 전용 임시 진단 모듈 =====
 // 일반 접속 시: 아래 IIFE는 조건검사 1줄만 실행하고 즉시 종료(추가 렌더링·fetch래핑·오버헤드 없음)
@@ -190,6 +190,7 @@
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#2C2A26">
 <!-- iOS 홈화면 추가 지원 -->
+<meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="공부하자앱">
@@ -1003,7 +1004,11 @@ border-radius:50%;background:linear-gradient(135deg,rgba(61,123,245,0.14),rgba(6
 #student-select-view,
 #learning-home-view{width:100%}
 
-#student-select-view{animation:fadeIn .35s ease}
+#student-select-view{animation:fadeIn .35s ease, studyWatermarkFlow 26s linear infinite}
+@keyframes studyWatermarkFlow{
+  from{background-position:0 0}
+  to{background-position:190px 110px}
+}
 #learning-home-view{display:none;animation:fadeIn .35s ease;text-align:left}
 
 .learning-home-header{text-align:center;margin-bottom:var(--space-section)}
@@ -1026,10 +1031,6 @@ border-radius:50%;background:linear-gradient(135deg,rgba(61,123,245,0.14),rgba(6
   .change-student-btn{margin-top:24px!important;padding-bottom:8px}
 
 
-50%{transform:scale(1.04)}
-}
-
-
 /* 왼쪽 하단 관리자 모드 버튼 */
 
 
@@ -1040,7 +1041,7 @@ border-radius:50%;background:linear-gradient(135deg,rgba(61,123,245,0.14),rgba(6
 #student-select-view{
   text-align:left;
   padding:4px 0 12px;
-  background:var(--neutral-bg);
+  background:var(--neutral-bg) url("data:image/svg+xml;base64,PHN2ZyB4bWxucz0naHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmcnIHdpZHRoPScxOTAnIGhlaWdodD0nMTEwJz48dGV4dCB4PSc5NScgeT0nNjAnIGZvbnQtZmFtaWx5PSdzYW5zLXNlcmlmJyBmb250LXNpemU9JzIwJyBmb250LXdlaWdodD0nODAwJyBmaWxsPSdyZ2JhKDQyLDM4LDMyLDAuMDU1KScgdGV4dC1hbmNob3I9J21pZGRsZScgdHJhbnNmb3JtPSdyb3RhdGUoLTE4IDk1IDU1KSc+6rO167aA7ZWY7J6QPC90ZXh0Pjwvc3ZnPg==") repeat;
 }
 
 #student-select-view > .era-icon{
@@ -1626,6 +1627,7 @@ border-radius:50%;background:linear-gradient(135deg,rgba(61,123,245,0.14),rgba(6
 
 /* 움직임 최소화 설정을 켠 기기에서는 애니메이션 제거 */
 @media (prefers-reduced-motion:reduce){
+  #student-select-view,
   #student-select-view .student-card,
   #student-select-view .student-avatar,
   #student-select-view .settings-btn,
@@ -4205,7 +4207,8 @@ h1,h2,h3,.title-label{
 
 <script>
 (()=>{
-  const APP_SCRIPT_URL='app.js?v=20260813-4';
+  const APP_SCRIPT_URL='app.js?v=20260820-1';
+  window.__APP_SCRIPT_URL=APP_SCRIPT_URL; // 디버그 로그(app.js __perfMark)가 실제 로드 버전을 하드코딩 없이 참조하도록 노출
   window.__appMainReady=false;
   window.__pendingShellStudent='';
   window.__pendingShellAction=''; // 'admin' | 'teacher' — app.js 준비 전 관리자/선생님 버튼 클릭 의도 보존(마지막 값만 유지)
