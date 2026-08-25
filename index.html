@@ -5,8 +5,8 @@
 <!-- app.js/learning-content.js는 아래에서 rAF 이후 동적으로 <script> 삽입되어 실행되지만,
      다운로드 자체는 여기서 미리 시작해두면 두 파일이 순차가 아니라 병렬로 받아져 초기 로딩이 빨라집니다.
      버전 쿼리(?v=...)는 실제 <script src=...> 값과 반드시 동일하게 유지해야 브라우저가 프리로드를 재사용합니다. -->
-<link rel="preload" as="script" href="app.js?v=20260825-3">
-<link rel="preload" as="script" href="learning-content.js?v=20260825-content-18">
+<link rel="preload" as="script" href="app.js?v=20260825-5">
+<link rel="preload" as="script" href="learning-content.js?v=20260825-content-19">
 <script>
 // ===== ?perf=1 전용 임시 진단 모듈 =====
 // 일반 접속 시: 아래 IIFE는 조건검사 1줄만 실행하고 즉시 종료(추가 렌더링·fetch래핑·오버헤드 없음)
@@ -3821,8 +3821,8 @@ h1,h2,h3,.title-label{
       <div style="font-size:40px;margin-bottom:10px">✉️</div>
       <h3>정리문제 안내</h3>
       <p style="color:var(--sand);font-size:13px;line-height:1.7;margin:10px 0 16px">
-        전체 <b style="color:var(--ash)">40분</b> 동안 35문제를 풀어요.<br>
-        <b style="color:var(--ash)">100점 만점에 70점 이상</b>이면 합격이에요!<br>
+        전체 <b style="color:var(--ash)" id="exam-start-minutes">40분</b> 동안 <span id="exam-start-total">35문제</span>를 풀어요.<br>
+        <b style="color:var(--ash)" id="exam-start-pass">100점 만점에 70점 이상</b>이면 합격이에요!<br>
         앞뒤 문제 이동 가능, 마지막 문제에서<br>"제출하기"를 눌러야 채점됩니다.
       </p>
       <button class="pw-btn pw-confirm" style="width:100%" onclick="confirmExamStart()">시작하기!</button>
@@ -4230,7 +4230,7 @@ h1,h2,h3,.title-label{
 
 <script>
 (()=>{
-  const APP_SCRIPT_URL='app.js?v=20260825-3';
+  const APP_SCRIPT_URL='app.js?v=20260825-5';
   window.__APP_SCRIPT_URL=APP_SCRIPT_URL; // 디버그 로그(app.js __perfMark)가 실제 로드 버전을 하드코딩 없이 참조하도록 노출
   window.__appMainReady=false;
   window.__pendingShellStudent='';

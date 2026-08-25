@@ -309,7 +309,7 @@ function loadLearningContent(){
     },__CONTENT_LOAD_TIMEOUT_MS);
 
     const script=document.createElement('script');
-    script.src='learning-content.js?v=20260825-content-18';
+    script.src='learning-content.js?v=20260825-content-19';
     __contentScriptEl=script;
     window.__perfMark&&window.__perfMark('learning-content.js 요청시작');
     script.onload=()=>{
@@ -435,6 +435,7 @@ const CONTENT_VISIBILITY_VERSIONED_KEYS={
   'unit:silhakGukhak':'unit:silhakGukhak@questions-v1',
   'unit:lateJoseonCulturalExchange':'unit:lateJoseonCulturalExchange@questions-v1',
   'unit:lateJoseonCommonerCulture':'unit:lateJoseonCommonerCulture@questions-v1',
+  'unit:joseonReview':'unit:joseonReview@questions-v1',
   'historySummary:historySummary2':'historySummary:historySummary2@content-v1',
   'historyTraining:part17':'historyTraining:part17@content-v1',
   'historyTraining:part18':'historyTraining:part18@content-v1',
@@ -490,6 +491,7 @@ const CONTENT_VISIBILITY_DEFAULTS={
   'unit:silhakGukhak@questions-v1':false,
   'unit:lateJoseonCulturalExchange@questions-v1':false,
   'unit:lateJoseonCommonerCulture@questions-v1':false,
+  'unit:joseonReview@questions-v1':false,
   'historySummary:historySummary2@content-v1':false,
   'historyTraining:part17@content-v1':false,
   'historyTraining:part18@content-v1':false,
@@ -1891,7 +1893,7 @@ const UNIT_GROUP2_KEYS=['suidang','unification','balhae','silla','sillaCulture',
 const UNIT_GROUP3_KEYS=['goryeoFounding','goryeoGovernment','goryeoMilitaryRegime','goryeoKhitanJurchen','goryeoMongol','goryeoYuanInterference','goryeoAntiYuanReform','goryeoCulture'];
 const UNIT_GROUP4_KEYS=['joseonFounding','joseonEarlyKings','joseonGovernment','joseonDiplomacy','sarimEmergence','factionFormation','joseonCulture','imjinJeongyuWar','jeongmyoByeongjaWar'];
 const UNIT_GROUP5_KEYS=['lateJoseonChange','yeongjoJeongjoTangpyeong','sedoPolitics','ruralSocietyChange','peasantUprising','silhakGukhak','lateJoseonCulturalExchange','lateJoseonCommonerCulture'];
-const UNIT_GROUP_REVIEW_KEYS=['review','southNorthReview','goryeoReview'];
+const UNIT_GROUP_REVIEW_KEYS=['review','southNorthReview','goryeoReview','joseonReview'];
 
 // 번호가 매겨진 UNIT 그룹들 — 새 UNIT을 추가할 땐 이 배열에만 항목을 넣으면 됩니다.
 // '정리문제' 그룹은 아래 getAllUnitGroups_()에서 항상 이 배열 뒤에 붙으므로, 그룹이 몇 개로 늘어나든 항상 맨 아래에 남습니다.
@@ -4189,9 +4191,13 @@ function selectLevel(el){
 
 function openStartQuizPopup(){
   const u=UNITS[currentUnit];
-  const levelLabel=currentLevel==='easy'?'🌱 기본':'🔥 심화';
   document.getElementById('start-popup-title').textContent=u.title;
-  document.getElementById('start-popup-sub').textContent=levelLabel+' · '+(currentLevel==='easy'?u.easyCount:u.hardCount)+'문제';
+  if(u.examMode){
+    document.getElementById('start-popup-sub').textContent='✉️ 정리문제 · '+u.totalQuestions+'문제';
+  }else{
+    const levelLabel=currentLevel==='easy'?'🌱 기본':'🔥 심화';
+    document.getElementById('start-popup-sub').textContent=levelLabel+' · '+(currentLevel==='easy'?u.easyCount:u.hardCount)+'문제';
+  }
   document.getElementById('start-quiz-overlay').classList.add('show');
 }
 
@@ -9645,6 +9651,9 @@ function startExamQuiz(){
   document.getElementById('exam-nav').style.display='flex';
   document.getElementById('timer-circle-wrap').style.display='none';
   document.getElementById('score-badge').style.display='none';
+  document.getElementById('exam-start-minutes').textContent=Math.floor(unit.duration/60)+'분';
+  document.getElementById('exam-start-total').textContent=unit.totalQuestions+'문제';
+  document.getElementById('exam-start-pass').textContent='100점 만점에 '+unit.passScore+'점 이상';
   document.getElementById('exam-start-overlay').classList.add('show');
 }
 

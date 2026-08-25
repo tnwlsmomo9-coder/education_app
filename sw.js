@@ -1,8 +1,8 @@
 const CACHE_NAME = 'samguk-culture-quiz-v41-content-requirement';
 const ASSETS = [
   './index.html',
-  './app.js?v=20260825-3',
-  './learning-content.js?v=20260825-content-18',
+  './app.js?v=20260825-5',
+  './learning-content.js?v=20260825-content-19',
   './manifest.json',
   './icon-192.png',
   './icon-512.png'
