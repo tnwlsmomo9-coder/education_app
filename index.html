@@ -5,8 +5,8 @@
 <!-- app.js/learning-content.js는 아래에서 rAF 이후 동적으로 <script> 삽입되어 실행되지만,
      다운로드 자체는 여기서 미리 시작해두면 두 파일이 순차가 아니라 병렬로 받아져 초기 로딩이 빨라집니다.
      버전 쿼리(?v=...)는 실제 <script src=...> 값과 반드시 동일하게 유지해야 브라우저가 프리로드를 재사용합니다. -->
-<link rel="preload" as="script" href="app.js?v=20260820-1">
-<link rel="preload" as="script" href="learning-content.js?v=20260820-content-15">
+<link rel="preload" as="script" href="app.js?v=20260825-3">
+<link rel="preload" as="script" href="learning-content.js?v=20260825-content-18">
 <script>
 // ===== ?perf=1 전용 임시 진단 모듈 =====
 // 일반 접속 시: 아래 IIFE는 조건검사 1줄만 실행하고 즉시 종료(추가 렌더링·fetch래핑·오버헤드 없음)
@@ -1004,10 +1004,20 @@ border-radius:50%;background:linear-gradient(135deg,rgba(61,123,245,0.14),rgba(6
 #student-select-view,
 #learning-home-view{width:100%}
 
-#student-select-view{animation:fadeIn .35s ease, studyWatermarkFlow 26s linear infinite}
+#student-select-view{animation:fadeIn .35s ease}
 @keyframes studyWatermarkFlow{
   from{background-position:0 0}
   to{background-position:190px 110px}
+}
+/* 워터마크는 body에 걸어 브라우저 전체 폭을 채우고, 학생 선택 화면이 아닐 때만 꺼서
+   다른 화면에는 영향이 없게 함(#student-select-view의 display:none 여부로 판단) */
+body{
+  background:var(--neutral-bg) url("data:image/svg+xml;base64,PHN2ZyB4bWxucz0naHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmcnIHdpZHRoPScxOTAnIGhlaWdodD0nMTEwJz48dGV4dCB4PSc5NScgeT0nNjAnIGZvbnQtZmFtaWx5PSdzYW5zLXNlcmlmJyBmb250LXNpemU9JzIwJyBmb250LXdlaWdodD0nODAwJyBmaWxsPSdyZ2JhKDQyLDM4LDMyLDAuMDU1KScgdGV4dC1hbmNob3I9J21pZGRsZScgdHJhbnNmb3JtPSdyb3RhdGUoLTE4IDk1IDU1KSc+6rO167aA7ZWY7J6QPC90ZXh0Pjwvc3ZnPg==") repeat;
+  animation:studyWatermarkFlow 26s linear infinite;
+}
+body:has(#student-select-view[style*="display: none"]){
+  background:none;
+  animation:none;
 }
 #learning-home-view{display:none;animation:fadeIn .35s ease;text-align:left}
 
@@ -1041,7 +1051,6 @@ border-radius:50%;background:linear-gradient(135deg,rgba(61,123,245,0.14),rgba(6
 #student-select-view{
   text-align:left;
   padding:4px 0 12px;
-  background:var(--neutral-bg) url("data:image/svg+xml;base64,PHN2ZyB4bWxucz0naHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmcnIHdpZHRoPScxOTAnIGhlaWdodD0nMTEwJz48dGV4dCB4PSc5NScgeT0nNjAnIGZvbnQtZmFtaWx5PSdzYW5zLXNlcmlmJyBmb250LXNpemU9JzIwJyBmb250LXdlaWdodD0nODAwJyBmaWxsPSdyZ2JhKDQyLDM4LDMyLDAuMDU1KScgdGV4dC1hbmNob3I9J21pZGRsZScgdHJhbnNmb3JtPSdyb3RhdGUoLTE4IDk1IDU1KSc+6rO167aA7ZWY7J6QPC90ZXh0Pjwvc3ZnPg==") repeat;
 }
 
 #student-select-view > .era-icon{
@@ -1627,6 +1636,7 @@ border-radius:50%;background:linear-gradient(135deg,rgba(61,123,245,0.14),rgba(6
 
 /* 움직임 최소화 설정을 켠 기기에서는 애니메이션 제거 */
 @media (prefers-reduced-motion:reduce){
+  body,
   #student-select-view,
   #student-select-view .student-card,
   #student-select-view .student-avatar,
@@ -2558,10 +2568,23 @@ body.focus-mode-active .settings-btn{display:none!important}
 .content-approval-group:first-child{margin-top:0}
 .content-approval-group-title{font-size:12px;font-weight:900;color:var(--clay);margin-bottom:7px}
 .content-approval-row{
-  display:flex;align-items:center;justify-content:space-between;gap:10px;
+  display:flex;flex-direction:column;gap:6px;
   padding:9px 10px;background:#fff;border-radius:11px;margin-bottom:6px;
   border:1px solid rgba(30,45,70,.08)
 }
+.content-approval-row-main{
+  display:flex;align-items:center;justify-content:space-between;gap:10px
+}
+.content-approval-required-row{
+  display:flex;align-items:center;flex-wrap:wrap;gap:5px
+}
+.content-approval-required-label{font-size:10px;font-weight:800;color:var(--sand);margin-right:2px}
+.content-approval-required-chip{
+  border:none;border-radius:999px;padding:4px 8px;
+  font-family:inherit;font-size:10px;font-weight:800;cursor:pointer
+}
+.content-approval-required-chip.on{background:rgba(61,123,245,.14);color:#2f5fd6}
+.content-approval-required-chip.off{background:rgba(120,130,150,.12);color:#8a93a3;text-decoration:line-through}
 .content-approval-label{font-size:12px;font-weight:800;color:var(--ash);min-width:0}
 .content-approval-switch{
   border:none;border-radius:999px;padding:6px 10px;min-width:68px;
@@ -4207,7 +4230,7 @@ h1,h2,h3,.title-label{
 
 <script>
 (()=>{
-  const APP_SCRIPT_URL='app.js?v=20260820-1';
+  const APP_SCRIPT_URL='app.js?v=20260825-3';
   window.__APP_SCRIPT_URL=APP_SCRIPT_URL; // 디버그 로그(app.js __perfMark)가 실제 로드 버전을 하드코딩 없이 참조하도록 노출
   window.__appMainReady=false;
   window.__pendingShellStudent='';

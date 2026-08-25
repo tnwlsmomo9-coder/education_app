@@ -309,7 +309,7 @@ function loadLearningContent(){
     },__CONTENT_LOAD_TIMEOUT_MS);
 
     const script=document.createElement('script');
-    script.src='learning-content.js?v=20260820-content-15';
+    script.src='learning-content.js?v=20260825-content-18';
     __contentScriptEl=script;
     window.__perfMark&&window.__perfMark('learning-content.js 요청시작');
     script.onload=()=>{
@@ -431,6 +431,10 @@ const CONTENT_VISIBILITY_VERSIONED_KEYS={
   'unit:yeongjoJeongjoTangpyeong':'unit:yeongjoJeongjoTangpyeong@questions-v1',
   'unit:sedoPolitics':'unit:sedoPolitics@questions-v1',
   'unit:ruralSocietyChange':'unit:ruralSocietyChange@questions-v1',
+  'unit:peasantUprising':'unit:peasantUprising@questions-v1',
+  'unit:silhakGukhak':'unit:silhakGukhak@questions-v1',
+  'unit:lateJoseonCulturalExchange':'unit:lateJoseonCulturalExchange@questions-v1',
+  'unit:lateJoseonCommonerCulture':'unit:lateJoseonCommonerCulture@questions-v1',
   'historySummary:historySummary2':'historySummary:historySummary2@content-v1',
   'historyTraining:part17':'historyTraining:part17@content-v1',
   'historyTraining:part18':'historyTraining:part18@content-v1',
@@ -482,6 +486,10 @@ const CONTENT_VISIBILITY_DEFAULTS={
   'unit:yeongjoJeongjoTangpyeong@questions-v1':false,
   'unit:sedoPolitics@questions-v1':false,
   'unit:ruralSocietyChange@questions-v1':false,
+  'unit:peasantUprising@questions-v1':false,
+  'unit:silhakGukhak@questions-v1':false,
+  'unit:lateJoseonCulturalExchange@questions-v1':false,
+  'unit:lateJoseonCommonerCulture@questions-v1':false,
   'historySummary:historySummary2@content-v1':false,
   'historyTraining:part17@content-v1':false,
   'historyTraining:part18@content-v1':false,
@@ -610,7 +618,10 @@ async function loadContentVisibility(force=false){
   if(contentVisibilityCache&&!force)return contentVisibilityCache;
 
   const local=readLocalContentVisibility();
-  const server=await apiGetContentVisibility();
+  const [server]=await Promise.all([
+    apiGetContentVisibility(),
+    loadContentRequirement(force) // 공개설정 로드 시 필수대상설정도 함께 최신화 (실패해도 각자 내부에서 흡수되어 이 흐름을 막지 않음)
+  ]);
 
   const seed=getCurrentContentVisibilitySeed();
 
@@ -667,6 +678,118 @@ async function setAllContentApproved(approved){
     :'⚠️ 이 기기에는 반영됐지만 서버 저장은 되지 않았어요.');
 }
 
+// ══════════════════════════════════════════
+// 콘텐츠별 "필수 대상 학생" — 공개(contentVisibility)와는 별개의 저장소.
+// 공개된 콘텐츠는 전원이 계속 열람·풀이 가능하되, 이 목록에 없는 학생에게는
+// 미완료 목록/진행률 계산에서만 빠진다(참고용). 설정한 적 없는 콘텐츠는
+// 키 자체가 없으므로 기존과 동일하게 전원 필수로 취급된다(하위호환 기본값).
+// ══════════════════════════════════════════
+const CONTENT_REQUIREMENT_STORAGE_KEY='contentRequirement_v1';
+let contentRequirementCache=null;
+
+function readLocalContentRequirement(){
+  try{
+    const raw=JSON.parse(localStorage.getItem(CONTENT_REQUIREMENT_STORAGE_KEY)||'null');
+    if(raw&&typeof raw==='object'&&!Array.isArray(raw))return raw;
+  }catch(error){}
+  return {};
+}
+
+function normalizeContentRequirement(payload){
+  let src=payload;
+  if(src&&src.data&&typeof src.data==='object')src=src.data;
+  if(!src||typeof src!=='object'||Array.isArray(src))return {};
+  const validNames=STUDENTS.map(s=>s.name);
+  const out={};
+  Object.keys(src).forEach(key=>{
+    const list=src[key];
+    if(!Array.isArray(list))return;
+    out[key]=list.filter(n=>validNames.indexOf(n)!==-1);
+  });
+  return out;
+}
+
+async function apiGetContentRequirement(){
+  if(!apiConfigured())return {};
+  try{
+    const res=await fetch(API_URL+'?action=getContentRequirement',{cache:'no-store'});
+    const payload=await res.json();
+    if(!res.ok||!payload||payload.ok===false)return {};
+    return normalizeContentRequirement(payload);
+  }catch(error){
+    console.warn('getContentRequirement 요청 실패:',error);
+    return {};
+  }
+}
+
+async function apiSetContentRequirement(requirement){
+  if(!apiConfigured())return false;
+  try{
+    const body=new URLSearchParams();
+    body.set('action','setContentRequirement');
+    body.set('data',JSON.stringify(requirement||{}));
+    const res=await fetch(API_URL,{method:'POST',body});
+    const payload=await res.json();
+    return !!(res.ok&&payload&&payload.ok===true);
+  }catch(error){
+    console.warn('setContentRequirement 요청 실패:',error);
+    return false;
+  }
+}
+
+async function loadContentRequirement(force=false){
+  if(contentRequirementCache&&!force)return contentRequirementCache;
+  const local=readLocalContentRequirement();
+  const server=await apiGetContentRequirement();
+  if(Object.keys(server).length>0){
+    contentRequirementCache=server;
+    try{localStorage.setItem(CONTENT_REQUIREMENT_STORAGE_KEY,JSON.stringify(contentRequirementCache));}catch(error){}
+  }else{
+    contentRequirementCache=local;
+  }
+  return contentRequirementCache;
+}
+
+// 설정한 적 없는 콘텐츠는 기존과 동일하게 전원 필수 — 이 기본값이 하위호환의 핵심.
+// isContentApproved와 달리 관리자 모드에서도 절대 true로 우회하지 않는다 — 선생님/부모님
+// 확인 화면이 바로 이 함수로 "그 학생 기준" 진행률을 봐야 하는 화면이기 때문
+// (getApprovedKingOrderEras_가 contentVisibilityCache를 직접 읽는 것과 같은 이유).
+function isContentRequiredForStudent(type,key,name){
+  if(!name)return true;
+  const map=contentRequirementCache||readLocalContentRequirement();
+  const required=map[contentVisibilityItemKey(type,key)];
+  if(!Array.isArray(required))return true;
+  return required.indexOf(name)!==-1;
+}
+
+async function setContentRequiredStudents(type,key,studentNames){
+  const map={...(contentRequirementCache||readLocalContentRequirement())};
+  const itemKey=contentVisibilityItemKey(type,key);
+  const validNames=STUDENTS.map(s=>s.name);
+  map[itemKey]=validNames.filter(n=>Array.isArray(studentNames)&&studentNames.indexOf(n)!==-1);
+  contentRequirementCache=map;
+  try{localStorage.setItem(CONTENT_REQUIREMENT_STORAGE_KEY,JSON.stringify(map));}catch(error){}
+
+  renderContentApprovalPanel();
+  if(playerName){
+    renderIncompleteUnitsSection();
+    renderHomeSummaryCard();
+  }
+
+  const ok=await apiSetContentRequirement(map);
+  showToast2(ok?'✅ 필수 대상을 저장했어요.':'⚠️ 이 기기에는 반영됐지만 서버 저장은 되지 않았어요.');
+}
+
+function toggleContentRequiredStudent(type,key,studentName){
+  const itemKey=contentVisibilityItemKey(type,key);
+  const map=contentRequirementCache||readLocalContentRequirement();
+  const current=Array.isArray(map[itemKey])?map[itemKey]:STUDENTS.map(s=>s.name);
+  const next=current.indexOf(studentName)!==-1
+    ? current.filter(n=>n!==studentName)
+    : [...current,studentName];
+  setContentRequiredStudents(type,key,next);
+}
+
 function getContentApprovalGroups(){
   const unitItems=Object.keys(UNITS||{}).map(key=>({
     type:'unit',key,label:UNITS[key].title
@@ -711,18 +834,34 @@ function renderContentApprovalPanel(){
   const body=document.getElementById('content-approval-body');
   if(!body)return;
   const map=contentVisibilityCache||readLocalContentVisibility();
+  const reqMap=contentRequirementCache||readLocalContentRequirement();
   body.innerHTML=getContentApprovalGroups().map(group=>`
     <div class="content-approval-group">
       <div class="content-approval-group-title">${group.title}</div>
       ${group.items.map(item=>{
         const approved=map[contentVisibilityItemKey(item.type,item.key)]===true;
+        const itemKey=contentVisibilityItemKey(item.type,item.key);
+        const requiredList=Array.isArray(reqMap[itemKey])?reqMap[itemKey]:STUDENTS.map(s=>s.name);
         return `<div class="content-approval-row">
-          <div class="content-approval-label">${item.label}</div>
-          <button type="button"
-            class="content-approval-switch ${approved?'open':'closed'}"
-            onclick="setContentApproved('${item.type}','${item.key}',${approved?'false':'true'})">
-            ${approved?'공개 중':'비공개'}
-          </button>
+          <div class="content-approval-row-main">
+            <div class="content-approval-label">${item.label}</div>
+            <button type="button"
+              class="content-approval-switch ${approved?'open':'closed'}"
+              onclick="setContentApproved('${item.type}','${item.key}',${approved?'false':'true'})">
+              ${approved?'공개 중':'비공개'}
+            </button>
+          </div>
+          <div class="content-approval-required-row">
+            <span class="content-approval-required-label">필수 대상</span>
+            ${STUDENTS.map(s=>{
+              const isRequired=requiredList.indexOf(s.name)!==-1;
+              return `<button type="button"
+                class="content-approval-required-chip ${isRequired?'on':'off'}"
+                onclick="toggleContentRequiredStudent('${item.type}','${item.key}','${s.name}')">
+                ${s.name}
+              </button>`;
+            }).join('')}
+          </div>
         </div>`;
       }).join('')}
     </div>
@@ -1747,19 +1886,29 @@ function selectUnit(el,key){
   }
 }
 
-const UNIT_GROUP1_KEYS=['prehistoric','politics','culture','review'];
-const UNIT_GROUP2_KEYS=['suidang','unification','balhae','silla','sillaCulture','balhaeCulture','southNorthExchange','southNorthReview'];
-const UNIT_GROUP3_KEYS=['goryeoFounding','goryeoGovernment','goryeoMilitaryRegime','goryeoKhitanJurchen','goryeoMongol','goryeoYuanInterference','goryeoAntiYuanReform','goryeoCulture','goryeoReview'];
+const UNIT_GROUP1_KEYS=['prehistoric','politics','culture'];
+const UNIT_GROUP2_KEYS=['suidang','unification','balhae','silla','sillaCulture','balhaeCulture','southNorthExchange'];
+const UNIT_GROUP3_KEYS=['goryeoFounding','goryeoGovernment','goryeoMilitaryRegime','goryeoKhitanJurchen','goryeoMongol','goryeoYuanInterference','goryeoAntiYuanReform','goryeoCulture'];
 const UNIT_GROUP4_KEYS=['joseonFounding','joseonEarlyKings','joseonGovernment','joseonDiplomacy','sarimEmergence','factionFormation','joseonCulture','imjinJeongyuWar','jeongmyoByeongjaWar'];
-const UNIT_GROUP5_KEYS=['lateJoseonChange','yeongjoJeongjoTangpyeong','sedoPolitics','ruralSocietyChange'];
+const UNIT_GROUP5_KEYS=['lateJoseonChange','yeongjoJeongjoTangpyeong','sedoPolitics','ruralSocietyChange','peasantUprising','silhakGukhak','lateJoseonCulturalExchange','lateJoseonCommonerCulture'];
+const UNIT_GROUP_REVIEW_KEYS=['review','southNorthReview','goryeoReview'];
+
+// 번호가 매겨진 UNIT 그룹들 — 새 UNIT을 추가할 땐 이 배열에만 항목을 넣으면 됩니다.
+// '정리문제' 그룹은 아래 getAllUnitGroups_()에서 항상 이 배열 뒤에 붙으므로, 그룹이 몇 개로 늘어나든 항상 맨 아래에 남습니다.
+const NUMBERED_UNIT_GROUPS_=[
+  {id:'unit-group-1', label:'UNIT1', keys:UNIT_GROUP1_KEYS},
+  {id:'unit-group-2', label:'UNIT2', keys:UNIT_GROUP2_KEYS},
+  {id:'unit-group-3', label:'UNIT3', keys:UNIT_GROUP3_KEYS},
+  {id:'unit-group-4', label:'UNIT4', keys:UNIT_GROUP4_KEYS},
+  {id:'unit-group-5', label:'UNIT5', keys:UNIT_GROUP5_KEYS}
+];
+function getAllUnitGroups_(){
+  return [...NUMBERED_UNIT_GROUPS_, {id:'unit-group-review', label:'정리문제', keys:UNIT_GROUP_REVIEW_KEYS}];
+}
 
 function getUnitGroupInfo(unitKey){
-  if(UNIT_GROUP1_KEYS.includes(unitKey)) return {label:'UNIT1', id:'unit-group-1'};
-  if(UNIT_GROUP2_KEYS.includes(unitKey)) return {label:'UNIT2', id:'unit-group-2'};
-  if(UNIT_GROUP3_KEYS.includes(unitKey)) return {label:'UNIT3', id:'unit-group-3'};
-  if(UNIT_GROUP4_KEYS.includes(unitKey)) return {label:'UNIT4', id:'unit-group-4'};
-  if(UNIT_GROUP5_KEYS.includes(unitKey)) return {label:'UNIT5', id:'unit-group-5'};
-  return {label:'UNIT2', id:'unit-group-2'};
+  const found=getAllUnitGroups_().find(g=>g.keys.includes(unitKey));
+  return found?{label:found.label, id:found.id}:{label:'UNIT2', id:'unit-group-2'};
 }
 
 function renderUnitGrid(){
@@ -1770,33 +1919,14 @@ function renderUnitGrid(){
   if(levelWrapToPreserve && grid && grid.contains(levelWrapToPreserve)){
     grid.insertAdjacentElement('afterend', levelWrapToPreserve);
   }
-  grid.innerHTML=`
-    <div class="unit-group-toggle" onclick="toggleUnitGroup('unit-group-1')">
-      <span>UNIT1</span><span id="unit-group-1-arrow">▾</span>
+  const groups=getAllUnitGroups_();
+  grid.innerHTML=groups.map(g=>`
+    <div class="unit-group-toggle" onclick="toggleUnitGroup('${g.id}')">
+      <span>${g.label}</span><span id="${g.id}-arrow">▾</span>
     </div>
-    <div class="unit-group-body" id="unit-group-1" style="display:none"></div>
-    <div class="unit-group-toggle" onclick="toggleUnitGroup('unit-group-2')">
-      <span>UNIT2</span><span id="unit-group-2-arrow">▾</span>
-    </div>
-    <div class="unit-group-body" id="unit-group-2" style="display:none"></div>
-    <div class="unit-group-toggle" onclick="toggleUnitGroup('unit-group-3')">
-      <span>UNIT3</span><span id="unit-group-3-arrow">▾</span>
-    </div>
-    <div class="unit-group-body" id="unit-group-3" style="display:none"></div>
-    <div class="unit-group-toggle" onclick="toggleUnitGroup('unit-group-4')">
-      <span>UNIT4</span><span id="unit-group-4-arrow">▾</span>
-    </div>
-    <div class="unit-group-body" id="unit-group-4" style="display:none"></div>
-    <div class="unit-group-toggle" onclick="toggleUnitGroup('unit-group-5')">
-      <span>UNIT5</span><span id="unit-group-5-arrow">▾</span>
-    </div>
-    <div class="unit-group-body" id="unit-group-5" style="display:none"></div>
-  `;
-  renderUnitGroupBody('unit-group-1',UNIT_GROUP1_KEYS);
-  renderUnitGroupBody('unit-group-2',UNIT_GROUP2_KEYS);
-  renderUnitGroupBody('unit-group-3',UNIT_GROUP3_KEYS);
-  renderUnitGroupBody('unit-group-4',UNIT_GROUP4_KEYS);
-  renderUnitGroupBody('unit-group-5',UNIT_GROUP5_KEYS);
+    <div class="unit-group-body" id="${g.id}" style="display:none"></div>
+  `).join('');
+  groups.forEach(g=>renderUnitGroupBody(g.id,g.keys));
 
   // 역사학습콘텐츠 카드 구성 (사건배열은 운영 제외, 데이터·기록만 보존)
   const gameSection=document.getElementById('timeline-game-section');
@@ -2657,7 +2787,7 @@ function refreshAllProgressCache(name){
 let htGroupExpanded=false; // 역사훈련소 그룹 토글 상태 (렌더링 간 유지)
 
 function calculateHistoryTrainingOverallProgress(name){
-  const approvedParts=historyTrainingData.filter(part=>isContentApproved('historyTraining',part.id)); // 비공개 PART는 계산 자체에서 제외
+  const approvedParts=historyTrainingData.filter(part=>isContentApproved('historyTraining',part.id)&&isContentRequiredForStudent('historyTraining',part.id,name)); // 비공개 PART·이 학생에게 필수 아닌 PART는 계산 자체에서 제외
   const total=approvedParts.length;
   if(total===0) return {percent:0, incompleteCount:0, completed:true, status:'완료', resumeTarget:null, completedAmount:0, totalAmount:100, includeInOverall:true};
   let sum=0, incompleteCount=0;
@@ -2684,7 +2814,7 @@ function calculateHistoryTrainingOverallProgress(name){
 
 // ── 이름카드·부모님확인·선생님확인 공통 전체 진행률 ──
 function calculateUnitOverallProgress(name){
-  const keys=getActiveUnitKeys().filter(key=>isContentApproved('unit',key)); // 비공개 단원은 계산 자체에서 제외
+  const keys=getActiveUnitKeys().filter(key=>isContentApproved('unit',key)&&isContentRequiredForStudent('unit',key,name)); // 비공개 단원·이 학생에게 필수 아닌 단원은 계산 자체에서 제외
   let completedAmount=0;
   let incompleteCount=0;
   let resumeTarget=null;
@@ -2709,7 +2839,7 @@ function calculateUnitOverallProgress(name){
 
 function calculateMapStudyProgress(name){
   const data=getMapStudyProgress(name);
-  const approvedParts=MAP_STUDY_PARTS.filter(part=>isContentApproved('mapStudy',part.id)); // 비공개 PART는 계산 자체에서 제외
+  const approvedParts=MAP_STUDY_PARTS.filter(part=>isContentApproved('mapStudy',part.id)&&isContentRequiredForStudent('mapStudy',part.id,name)); // 비공개 PART·이 학생에게 필수 아닌 PART는 계산 자체에서 제외
   const total=approvedParts.length;
   if(total===0)return {percent:0,completed:true,incompleteCount:0,resumeTarget:null,completedAmount:0,totalAmount:100,includeInOverall:true};
   let sum=0;
@@ -2736,15 +2866,18 @@ function calculateMapStudyProgress(name){
 
 // 역대 왕 계보: 공개된 시대만 필수 분모에 넣고, 시대별 통과 여부를 균등하게 계산합니다.
 // 아직 공개된 시대가 하나도 없으면 전체 진행률 분자·분모에서 모두 제외합니다.
-function getApprovedKingOrderEras_(){
+function getApprovedKingOrderEras_(name){
   if(typeof KING_ORDER_DATA==='undefined'||!Array.isArray(KING_ORDER_DATA))return [];
   // 관리자 미리보기 권한과 실제 학생 공개 상태를 분리해, 비공개 시대가 진행률에 섞이지 않게 합니다.
   const visibility=contentVisibilityCache||readLocalContentVisibility();
-  return KING_ORDER_DATA.filter(era=>visibility[contentVisibilityItemKey('kingOrder',era.id)]===true);
+  return KING_ORDER_DATA.filter(era=>
+    visibility[contentVisibilityItemKey('kingOrder',era.id)]===true
+    && isContentRequiredForStudent('kingOrder',era.id,name)
+  );
 }
 
 function calculateKingOrderProgress(name){
-  const eras=getApprovedKingOrderEras_();
+  const eras=getApprovedKingOrderEras_(name);
   const total=eras.length;
   if(total===0){
     return {
@@ -3050,7 +3183,7 @@ function buildIncompleteLearningItems(name){
 // UNIT (일반 단원 + 정리문제) — 기존 buildIncompleteLearningItems의 UNIT 루프와 동일한 순서/내용
 function getUnitIncompleteItems(name){
   const items=[];
-  getActiveUnitKeys().filter(key=>isContentApproved('unit',key)).forEach((key,idx)=>{
+  getActiveUnitKeys().filter(key=>isContentApproved('unit',key)&&isContentRequiredForStudent('unit',key,name)).forEach((key,idx)=>{
     const u=UNITS[key];
     const progress = UNITS[key].examMode ? calculateSummaryQuizProgress(name,key) : calculateUnitProgress(name,key);
     if(progress.percent<100){
@@ -3076,9 +3209,9 @@ function getHistoryTrainingIncompleteItems(name){
   if(typeof historyTrainingData==='undefined' || historyTrainingData.length===0) return [];
   const overall=calculateHistoryTrainingOverallProgress(name);
   if(overall.incompleteCount<=0) return [];
-  // children: 그룹 카드를 펼쳤을 때 보여주는 PART별 세부 목록 (비공개 PART는 제외)
+  // children: 그룹 카드를 펼쳤을 때 보여주는 PART별 세부 목록 (비공개 PART·이 학생에게 필수 아닌 PART는 제외)
   const children=historyTrainingData
-    .filter(part=>isContentApproved('historyTraining',part.id))
+    .filter(part=>isContentApproved('historyTraining',part.id)&&isContentRequiredForStudent('historyTraining',part.id,name))
     .map(part=>({partNumber:part.partNumber, title:part.title, progress:calculateHistoryTrainingProgress(name, part.id)}))
     .filter(c=>c.progress.percent<100);
   return [{
@@ -3149,12 +3282,12 @@ function getKingOrderResumeTarget(name){
   return items.length>0?items[0].resumeTarget:null;
 }
 
-function getHistorySummaryConfigIds_(){
-  return [HISTORY_SUMMARY1_ID, HISTORY_SUMMARY2_ID].filter(id=>isContentApproved('historySummary',id));
+function getHistorySummaryConfigIds_(name){
+  return [HISTORY_SUMMARY1_ID, HISTORY_SUMMARY2_ID].filter(id=>isContentApproved('historySummary',id)&&isContentRequiredForStudent('historySummary',id,name));
 }
 // 역사총정리①·②를 하나의 모듈로 집계 — 기존 getHistorySummary1IncompleteProgress 계산식을 그대로 재사용(새로 만들지 않음)
 function calculateHistorySummaryOverallProgress(name){
-  const ids=getHistorySummaryConfigIds_();
+  const ids=getHistorySummaryConfigIds_(name);
   if(ids.length===0){
     return {percent:0, completed:true, incompleteCount:0, resumeTarget:null, completedAmount:0, totalAmount:100, includeInOverall:true};
   }
@@ -3178,7 +3311,7 @@ function calculateHistorySummaryOverallProgress(name){
   };
 }
 function getHistorySummaryIncompleteItems(name){
-  const ids=getHistorySummaryConfigIds_();
+  const ids=getHistorySummaryConfigIds_(name);
   const items=[];
   ids.forEach(id=>{
     const p=getHistorySummary1IncompleteProgress(name,id);
@@ -8827,7 +8960,7 @@ function applyParentCompletedOnlyView(){
   });
 
   // UNIT 그룹은 전부 표시
-  ['unit-group-1','unit-group-2','unit-group-3','unit-group-4'].forEach(groupId=>{
+  getAllUnitGroups_().map(g=>g.id).forEach(groupId=>{
     const group=document.getElementById(groupId);
     if(!group)return;
     group.style.display='flex';
