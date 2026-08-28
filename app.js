@@ -1898,11 +1898,11 @@ const UNIT_GROUP_REVIEW_KEYS=['review','southNorthReview','goryeoReview','joseon
 // 번호가 매겨진 UNIT 그룹들 — 새 UNIT을 추가할 땐 이 배열에만 항목을 넣으면 됩니다.
 // '정리문제' 그룹은 아래 getAllUnitGroups_()에서 항상 이 배열 뒤에 붙으므로, 그룹이 몇 개로 늘어나든 항상 맨 아래에 남습니다.
 const NUMBERED_UNIT_GROUPS_=[
-  {id:'unit-group-1', label:'UNIT1', keys:UNIT_GROUP1_KEYS},
-  {id:'unit-group-2', label:'UNIT2', keys:UNIT_GROUP2_KEYS},
-  {id:'unit-group-3', label:'UNIT3', keys:UNIT_GROUP3_KEYS},
-  {id:'unit-group-4', label:'UNIT4', keys:UNIT_GROUP4_KEYS},
-  {id:'unit-group-5', label:'UNIT5', keys:UNIT_GROUP5_KEYS}
+  {id:'unit-group-1', label:'UNIT 1', keys:UNIT_GROUP1_KEYS},
+  {id:'unit-group-2', label:'UNIT 2', keys:UNIT_GROUP2_KEYS},
+  {id:'unit-group-3', label:'UNIT 3', keys:UNIT_GROUP3_KEYS},
+  {id:'unit-group-4', label:'UNIT 4', keys:UNIT_GROUP4_KEYS},
+  {id:'unit-group-5', label:'UNIT 5', keys:UNIT_GROUP5_KEYS}
 ];
 function getAllUnitGroups_(){
   return [...NUMBERED_UNIT_GROUPS_, {id:'unit-group-review', label:'정리문제', keys:UNIT_GROUP_REVIEW_KEYS}];
@@ -1910,7 +1910,7 @@ function getAllUnitGroups_(){
 
 function getUnitGroupInfo(unitKey){
   const found=getAllUnitGroups_().find(g=>g.keys.includes(unitKey));
-  return found?{label:found.label, id:found.id}:{label:'UNIT2', id:'unit-group-2'};
+  return found?{label:found.label, id:found.id}:{label:'UNIT 2', id:'unit-group-2'};
 }
 
 function renderUnitGrid(){
@@ -1924,7 +1924,7 @@ function renderUnitGrid(){
   const groups=getAllUnitGroups_();
   grid.innerHTML=groups.map(g=>`
     <div class="unit-group-toggle" onclick="toggleUnitGroup('${g.id}')">
-      <span>${g.label}</span><span id="${g.id}-arrow">▾</span>
+      <span>${g.label}</span><span id="${g.id}-arrow" class="unit-group-arrow" data-open="false"></span>
     </div>
     <div class="unit-group-body" id="${g.id}" style="display:none"></div>
   `).join('');
@@ -2545,7 +2545,7 @@ function toggleUnitGroup(id){
   if(!body)return;
   const isHidden=body.style.display==='none';
   body.style.display=isHidden?'flex':'none';
-  if(arrow) arrow.textContent=isHidden?'▴':'▾';
+  if(arrow) arrow.dataset.open=String(isHidden);
 }
 
 function toggleSectionFold(bodyId,arrowId){
@@ -2554,7 +2554,7 @@ function toggleSectionFold(bodyId,arrowId){
   if(!body)return;
   const isHidden=body.style.display==='none';
   body.style.display=isHidden?'flex':'none';
-  if(arrow) arrow.textContent=isHidden?'▴':'▾';
+  if(arrow) arrow.dataset.open=String(isHidden);
 }
 
 // ══════════════════════════════════════════════════
@@ -4214,15 +4214,15 @@ function confirmStartQuiz(){
 let allEntriesCache=[];
 let avatarMap={};
 
-async function renderStudentGrid(){
+async function renderStudentGrid(options={}){
   const grid=document.getElementById('student-grid');
   // 학생 이름은 서버 응답과 관계없이 먼저 보여준다.
   // 서버가 느리거나 연결되지 않아도 이름 선택 화면이 비어 보이지 않게 한다.
   renderStudentCards();
   updateProgressColors();
-  if(!apiConfigured()){
-    return;
-  }
+  // 앱 시작/학생 선택 화면에서는 이름·기본 아바타만 먼저 표시한다.
+  // 전체 퀴즈 기록은 인증 완료 후 학생 홈의 기존 백그라운드 로딩에서 조회한다.
+  if(!options.refreshData || !apiConfigured()) return;
   allEntriesCache=await apiList();
   renderStudentCards();
   updateProgressColors();
@@ -4350,6 +4350,11 @@ function renderStudentCards(){
     const isLoggedIn=isAccessBadgeActive(s.name);
     const myAccess=accessLogCache.filter(a=>a.name===s.name).sort((a,b)=>(b.ts||0)-(a.ts||0));
     const lastAccessText=myAccess.length>0?myAccess[0].time:null;
+    // 콘텐츠가 아직 준비되지 않은 경우에만 스켈레톤을 표시하고, 서버 지연/실패 때는
+    // 이미 가진 로컬·메모리 캐시 값을 임시 오류 화면으로 교체하지 않는다.
+    // 서버 응답 지연/실패 여부와 관계없이 현재 로컬·메모리 캐시 값을 계속 표시한다.
+    // watchdog는 백그라운드 재시도 신호일 뿐, 카드 내용을 오류 UI로 교체하지 않는다.
+    const cardDataLoading=prog.loading;
     const c=document.createElement('div');
     c.className='student-card'+(note?' has-note':'')+(hasPrimary?(s.name===primaryName?' primary-card':' compact-card'):'');
     c.dataset.name=s.name;
@@ -4364,15 +4369,15 @@ function renderStudentCards(){
         </div>
         ${mood?`<div class="student-mood">${mood}</div>`:''}
         ${note?`<div class="student-note">📌 ${note}</div>`:''}
-        <div class="student-progress-row">
-          ${prog.loading
-            ? `<div class="student-progress-bar"></div><span class="student-progress-pct">불러오는 중...</span>`
+        <div class="student-progress-row${cardDataLoading?' student-card-skeleton':''}">
+          ${cardDataLoading
+            ? `<div class="student-progress-bar student-card-skeleton-bar"></div><span class="student-progress-pct">학습 기록 불러오는 중...</span>`
             : `<div class="student-progress-bar"><div class="student-progress-fill${prog.percent<=50?' warning':''}" style="width:${prog.percent}%"></div></div>
           <span class="student-progress-pct${prog.percent<=50?' warning':''}">${prog.percent}%</span>`}
         </div>
-        <div class="student-study-total">⏱ 총 공부시간 ${formatStudySeconds(totalStudySeconds)}</div>
-        ${lastAccessText?`<div class="student-last-access">🕐 마지막 접속: ${lastAccessText}</div>`:''}
-        ${canViewStudentDetail_()?`<button type="button" class="pw-btn pw-cancel" style="margin-top:6px;font-size:12px;padding:6px 10px" onclick="event.stopPropagation();openStudentDetailPanel('${s.name}')">📋 상세 기록 보기</button>`:''}
+        ${(!cardDataLoading)?`<div class="student-study-total">⏱ 총 공부시간 ${formatStudySeconds(totalStudySeconds)}</div>`:''}
+        ${(!cardDataLoading&&lastAccessText)?`<div class="student-last-access">🕐 마지막 접속: ${lastAccessText}</div>`:''}
+        ${canViewStudentDetail_()?`<button type="button" class="pw-btn pw-cancel student-detail-btn" style="margin-top:6px;font-size:12px;padding:6px 10px" onclick="event.stopPropagation();openStudentDetailPanel('${s.name}')">📋 상세 기록 보기</button>`:''}
         <div class="student-drag-hint">⠿⠿⠿</div>
       </div>
       <div class="student-card-arrow">›</div>
@@ -4380,7 +4385,7 @@ function renderStudentCards(){
     c.onclick=()=>{
       if(c.dataset.suppressClick==='1'){ delete c.dataset.suppressClick; return; }
       if(hasPrimary&&s.name!==primaryName){ previewStudentCard(s.name); return; } // 다른 학생 카드는 미리보기(크게)만, 로그인은 안 함
-      requestSelectStudent(c,s.name);
+      requestSelectStudent(c,s.name,c);
     };
     bindCardReorderGesture_(c);
     if(s.name===playerName){ c.classList.add('selected'); }
@@ -4454,28 +4459,130 @@ async function refreshHomeHeading(){
 }
 
 let pendingSettingsName='';
+let pendingSettingsTriggerEl=null;
 
 function openSettingsMenu(evt,name){
   evt.stopPropagation();
   pendingSettingsName=name;
+  pendingSettingsTriggerEl=evt.currentTarget;
   document.getElementById('settings-menu-overlay').classList.add('show');
+  __a11yDialogOpened_('settings-menu-overlay',pendingSettingsTriggerEl,closeSettingsMenu);
 }
 
 function closeSettingsMenu(){
   document.getElementById('settings-menu-overlay').classList.remove('show');
+  __a11yDialogClosed_('settings-menu-overlay');
 }
 
 function chooseSettingsAvatar(){
   const name=pendingSettingsName;
   closeSettingsMenu();
-  openAvatarPicker(null,name);
+  requestSettingsPinThen_(name, ()=>openAvatarPicker(null,name));
 }
 
 function chooseSettingsMood(){
   const name=pendingSettingsName;
   closeSettingsMenu();
-  openMoodPicker(null,name);
+  requestSettingsPinThen_(name, ()=>openMoodPicker(null,name));
 }
+
+// ===== 접근성: 로그인/설정 모달 포커스 관리 (신규) =====
+// 열림 스택에 쌓아두고, 맨 위 모달에 한해 Tab 트랩 + ESC 닫기를 전역 키다운 1개로 처리.
+// 각 오버레이의 열기/닫기 함수 본문은 그대로 두고, 그 함수들 안에 이 두 함수 호출만 덧붙인다.
+let __a11yDialogStack_=[];
+
+function __getFocusableIn_(container){
+  if(!container)return [];
+  return Array.from(container.querySelectorAll(
+    'a[href],button:not([disabled]),input:not([disabled]):not([type="hidden"]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])'
+  )).filter(el=>el.offsetParent!==null);
+}
+
+function __a11yDialogOpened_(overlayId,triggerEl,closeFn){
+  const overlay=document.getElementById(overlayId);
+  if(!overlay)return;
+  __a11yDialogStack_.push({overlayId,triggerEl:triggerEl||document.activeElement,closeFn});
+  setTimeout(()=>{
+    const focusables=__getFocusableIn_(overlay);
+    if(focusables.length) focusables[0].focus();
+  },0);
+}
+
+function __a11yDialogClosed_(overlayId){
+  const idx=__a11yDialogStack_.map(d=>d.overlayId).lastIndexOf(overlayId);
+  if(idx===-1)return;
+  const entry=__a11yDialogStack_[idx];
+  __a11yDialogStack_.splice(idx,1);
+  if(entry.triggerEl && typeof entry.triggerEl.focus==='function'){
+    setTimeout(()=>entry.triggerEl.focus(),0);
+  }
+}
+
+document.addEventListener('keydown',function(e){
+  if(!__a11yDialogStack_.length)return;
+  const top=__a11yDialogStack_[__a11yDialogStack_.length-1];
+  const overlay=document.getElementById(top.overlayId);
+  if(!overlay||!overlay.classList.contains('show'))return;
+  if(e.key==='Escape'){
+    e.preventDefault();
+    if(typeof top.closeFn==='function')top.closeFn();
+    return;
+  }
+  if(e.key==='Tab'){
+    const focusables=__getFocusableIn_(overlay);
+    if(!focusables.length)return;
+    const first=focusables[0],last=focusables[focusables.length-1];
+    if(e.shiftKey && document.activeElement===first){ e.preventDefault(); last.focus(); }
+    else if(!e.shiftKey && document.activeElement===last){ e.preventDefault(); first.focus(); }
+  }
+});
+
+// 로그인 전 아바타/기분 설정을 아무나 바꾸지 못하도록, 해당 학생의 기존 4자리 PIN을
+// 확인한 뒤에만 onSuccess(피커 열기)를 실행한다. 학생 로그인(confirmPinAction 등)과는
+// 별개의 독립 오버레이·상태를 사용 — 로그인 흐름은 건드리지 않는다.
+let pendingSettingsPinName='';
+let pendingSettingsPinSuccess=null;
+
+function requestSettingsPinThen_(name,onSuccess){
+  if(!pinMap[name]){
+    showToast2('⚠️ 아직 비밀번호가 없어요. 먼저 로그인해서 비밀번호를 만들어주세요.');
+    return;
+  }
+  pendingSettingsPinName=name;
+  pendingSettingsPinSuccess=onSuccess;
+  const input=document.getElementById('settings-pin-input');
+  if(input)input.value='';
+  const err=document.getElementById('settings-pin-error');
+  if(err)err.textContent='';
+  document.getElementById('settings-pin-overlay').classList.add('show');
+  __a11yDialogOpened_('settings-pin-overlay',pendingSettingsTriggerEl,closeSettingsPinGate_);
+}
+
+function closeSettingsPinGate_(){
+  document.getElementById('settings-pin-overlay').classList.remove('show');
+  pendingSettingsPinName='';
+  pendingSettingsPinSuccess=null;
+  __a11yDialogClosed_('settings-pin-overlay');
+}
+
+async function confirmSettingsPinGate_(){
+  const name=pendingSettingsPinName;
+  const onSuccess=pendingSettingsPinSuccess;
+  const input=document.getElementById('settings-pin-input');
+  const errEl=document.getElementById('settings-pin-error');
+  const pin=input?input.value.trim():'';
+  if(!pin){ if(errEl)errEl.textContent='비밀번호를 입력해주세요.'; return; }
+  if(!/^\d{4}$/.test(pin)){ if(errEl)errEl.textContent='숫자 4자리로 입력해주세요.'; return; }
+  const res=await apiVerifyPin(name,pin);
+  if(res && res.ok){
+    closeSettingsPinGate_();
+    if(typeof onSuccess==='function') onSuccess();
+  }else{
+    if(errEl) errEl.textContent='비밀번호가 틀렸어요.';
+  }
+}
+window.closeSettingsPinGate_=closeSettingsPinGate_;
+window.confirmSettingsPinGate_=confirmSettingsPinGate_;
 
 const MOOD_OPTIONS=[
   '😄 신남','😊 좋음','😐 보통','😪 피곤','😢 슬픔','😠 화남',
@@ -4492,13 +4599,15 @@ function openMoodPicker(evt,name){
   document.getElementById('mood-modal-title').textContent=name+'님, 오늘 기분은 어때요?';
   const current=moodMap[name];
   document.getElementById('mood-picker-grid').innerHTML=MOOD_OPTIONS.map(m=>
-    `<div class="mood-opt${m===current?' chosen':''}" onclick="chooseMood('${name}','${m}')">${m}</div>`
+    `<button type="button" class="mood-opt${m===current?' chosen':''}" onclick="chooseMood('${name}','${m}')">${m}</button>`
   ).join('');
   document.getElementById('mood-overlay').classList.add('show');
+  __a11yDialogOpened_('mood-overlay',evt?evt.currentTarget:pendingSettingsTriggerEl,closeMoodPicker);
 }
 
 function closeMoodPicker(){
   document.getElementById('mood-overlay').classList.remove('show');
+  __a11yDialogClosed_('mood-overlay');
 }
 
 async function chooseMood(name,mood){
@@ -4531,35 +4640,44 @@ function openAvatarPicker(evt,name){
   renderAvatarPickerRows();
   updateAvatarPreview();
   document.getElementById('avatar-overlay').classList.add('show');
+  __a11yDialogOpened_('avatar-overlay',evt?evt.currentTarget:pendingSettingsTriggerEl,closeAvatarPicker);
 }
 
 const ACC_LABELS={glasses:'안경',cap:'모자',earring:'귀걸이'};
 
 function renderAvatarPickerRows(){
   document.getElementById('skin-row').innerHTML=SKIN_TONES.map((c,i)=>
-    `<div class="avatar-swatch${editingConfig[0]===i?' chosen':''}" style="background:${c}" onclick="pickAvatarPart(0,${i})"></div>`
+    `<button type="button" class="avatar-swatch${editingConfig[0]===i?' chosen':''}" style="background:${c}" onclick="pickAvatarPart(0,${i})"></button>`
   ).join('');
   document.getElementById('hair-row').innerHTML=HAIR_STYLES.map((h,i)=>
-    `<div class="avatar-swatch style-swatch${editingConfig[1]===i?' chosen':''}" onclick="pickAvatarPart(1,${i})">${h.name}</div>`
+    `<button type="button" class="avatar-swatch style-swatch${editingConfig[1]===i?' chosen':''}" onclick="pickAvatarPart(1,${i})">${h.name}</button>`
   ).join('');
   document.getElementById('eyes-row').innerHTML=EYE_STYLES.map((e,i)=>
-    `<div class="avatar-swatch style-swatch${editingConfig[2]===i?' chosen':''}" onclick="pickAvatarPart(2,${i})">${buildAvatarSVG([0,5,i,2,2,''].join('-'),30)}</div>`
+    `<button type="button" class="avatar-swatch style-swatch${editingConfig[2]===i?' chosen':''}" onclick="pickAvatarPart(2,${i})">${buildAvatarSVG([0,5,i,2,2,''].join('-'),30)}</button>`
   ).join('');
   document.getElementById('nose-row').innerHTML=NOSE_STYLES.map((n,i)=>
-    `<div class="avatar-swatch style-swatch${editingConfig[3]===i?' chosen':''}" onclick="pickAvatarPart(3,${i})">${buildAvatarSVG([0,5,2,i,2,''].join('-'),30)}</div>`
+    `<button type="button" class="avatar-swatch style-swatch${editingConfig[3]===i?' chosen':''}" onclick="pickAvatarPart(3,${i})">${buildAvatarSVG([0,5,2,i,2,''].join('-'),30)}</button>`
   ).join('');
   document.getElementById('mouth-row').innerHTML=MOUTH_STYLES.map((m,i)=>
-    `<div class="avatar-swatch style-swatch${editingConfig[4]===i?' chosen':''}" onclick="pickAvatarPart(4,${i})">${buildAvatarSVG([0,5,2,2,i,''].join('-'),30)}</div>`
+    `<button type="button" class="avatar-swatch style-swatch${editingConfig[4]===i?' chosen':''}" onclick="pickAvatarPart(4,${i})">${buildAvatarSVG([0,5,2,2,i,''].join('-'),30)}</button>`
   ).join('');
   document.getElementById('accessory-row').innerHTML=ACCESSORIES.map((a,i)=>
-    `<div class="avatar-swatch style-swatch${editingConfig[5].includes(i)?' chosen':''}" onclick="toggleAccessoryPart(${i})">${ACC_LABELS[a]}${editingConfig[5].includes(i)?' ✓':''}</div>`
+    `<button type="button" class="avatar-swatch style-swatch${editingConfig[5].includes(i)?' chosen':''}" onclick="toggleAccessoryPart(${i})">${ACC_LABELS[a]}${editingConfig[5].includes(i)?' ✓':''}</button>`
   ).join('');
+}
+
+const AVATAR_ROW_IDS_=['skin-row','hair-row','eyes-row','nose-row','mouth-row','accessory-row'];
+function __refocusAvatarSwatch_(catIdx,valIdx){
+  const row=document.getElementById(AVATAR_ROW_IDS_[catIdx]);
+  const btn=row&&row.children[valIdx];
+  if(btn&&typeof btn.focus==='function')btn.focus();
 }
 
 function pickAvatarPart(catIdx,valIdx){
   editingConfig[catIdx]=valIdx;
   renderAvatarPickerRows();
   updateAvatarPreview();
+  __refocusAvatarSwatch_(catIdx,valIdx);
 }
 
 function toggleAccessoryPart(idx){
@@ -4568,6 +4686,7 @@ function toggleAccessoryPart(idx){
   if(pos===-1){ arr.push(idx); } else { arr.splice(pos,1); }
   renderAvatarPickerRows();
   updateAvatarPreview();
+  __refocusAvatarSwatch_(5,idx);
 }
 
 function updateAvatarPreview(){
@@ -4576,6 +4695,7 @@ function updateAvatarPreview(){
 
 function closeAvatarPicker(){
   document.getElementById('avatar-overlay').classList.remove('show');
+  __a11yDialogClosed_('avatar-overlay');
 }
 
 async function saveCharAvatar(){
@@ -4596,11 +4716,40 @@ let accessLogCache=[];
 let studentDataLoadedAt={};        // { 학생이름: 마지막 서버조회 완료 시각(ms) }
 let studentDataLoadingPromises={}; // { 학생이름: 진행 중인 조회 Promise } — 동일 학생 중복요청 방지
 
+// 학생 선택 화면 카드의 진행률/공부시간/마지막접속이 "서버 데이터 도착 전 임시값"으로
+// 잠깐 보이는 문제를 막기 위한 상태. true가 되기 전엔 카드에 스켈레톤만 표시한다.
+let studentCardServerDataReady=false;
+let studentCardServerDataFailed=false;
+let studentCardDataTimeoutTimer=null;
+
+// 학생 홈의 백그라운드 응답들이 짧은 시간에 연달아 도착해도 진행률/미완료/요약을
+// 응답마다 다시 그리지 않고, 다음 paint 한 번으로 합쳐 갱신한다.
+let homeUiRefreshFrame_=null;
+let homeUiRefreshNeedsUnits_=false;
+function scheduleHomeUiRefresh_(options={}){
+  if(!playerName)return;
+  homeUiRefreshNeedsUnits_=homeUiRefreshNeedsUnits_||!!options.rebuildUnits;
+  if(homeUiRefreshFrame_!==null)return;
+  homeUiRefreshFrame_=requestAnimationFrame(()=>{
+    homeUiRefreshFrame_=null;
+    const rebuildUnits=homeUiRefreshNeedsUnits_;
+    homeUiRefreshNeedsUnits_=false;
+    if(!playerName)return;
+    if(rebuildUnits) renderUnitGrid();
+    else updateProgressColors();
+    renderHomeSummaryCard();
+  });
+}
+
 // 서버 조회가 끝난 뒤(또는 즉시 캐시 표시 시) 화면을 한 번만 갱신하는 공통 함수
 // includeStudentList:false면 이름 목록 재렌더링은 생략 (이미 특정 학생 화면에 들어와 있을 때 등)
 function refreshStudentProgressUI(name, options={}){
   const opts=Object.assign({includeStudentList:true}, options);
   if(opts.includeStudentList) renderStudentCards();
+  if(!opts.includeStudentList && playerName===name && document.getElementById('learning-home-view')?.style.display==='block'){
+    scheduleHomeUiRefresh_();
+    return;
+  }
   updateProgressColors();
   // updateSelectedNameBanner()는 renderHomeSummaryCard()의 별칭이라 한 번만 호출
   if(playerName===name){
@@ -5090,7 +5239,7 @@ async function submitResultCorrection_(){
 
 // 정정 완료 후: list API 재호출 → allEntriesCache 갱신 → 학생카드/상세화면 진행률 갱신 → 정정목록/이력 재조회
 async function refreshAfterResultCorrection_(){
-  if(typeof renderStudentGrid==='function') await renderStudentGrid(); // apiList() 재호출 + allEntriesCache 갱신 + 학생카드 갱신까지 한번에
+  if(typeof renderStudentGrid==='function') await renderStudentGrid({refreshData:true}); // apiList() 재호출 + allEntriesCache 갱신 + 학생카드 갱신까지 한번에
   const name=studentDetailState.name;
   if(!name)return;
   const prog=getUnifiedProgressForUI(name);
@@ -5381,7 +5530,11 @@ function closeExitTestMode(){
 }
 
 async function checkExitTestModePassword(){
-  const val=document.getElementById('admin-exit-input').value;
+  const val=document.getElementById('admin-exit-input').value.trim();
+  if(!val){
+    document.getElementById('admin-exit-error').textContent='비밀번호를 입력해주세요.';
+    return;
+  }
   const result=await apiVerifyAdminPasswordOnly(val);
   if(result && result.ok){
     if(adminToken){
@@ -5467,17 +5620,8 @@ function showLearningHomeView(){
   const learningView=document.getElementById('learning-home-view');
   if(selectView) selectView.style.display='none';
   if(learningView) learningView.style.display='block';
-  // 선생님이 그 사이 공개설정을 바꾸거나 새 PART를 추가했을 수 있으니,
-  // 캐시를 강제로 새로 받아와서 UNIT 목록 + 미완료 단원 + 홈 요약카드를 조용히 다시 그림
-  // (화면은 기존 캐시로 먼저 보여주고, 최신 데이터가 오면 갱신 — 대기 없음)
-  Promise.allSettled([
-    loadContentVisibility(true),
-    loadHistoryTrainingProgressForName_(playerName) // 전체 학생이 아니라 지금 로그인된 학생 것만 가볍게 조회
-  ]).then(()=>{
-    if(typeof renderUnitGrid==='function') renderUnitGrid();
-    if(typeof renderIncompleteUnitsSection==='function') renderIncompleteUnitsSection();
-    if(typeof renderHomeSummaryCard==='function') renderHomeSummaryCard();
-  });
+  // 공개설정/역사훈련소 최신화는 학생별 핵심 데이터 로딩 뒤 초기 공통 조회에서 처리한다.
+  // 홈 DOM 표시 직후에는 캐시 기반 화면을 유지해 비필수 요청이 paint를 방해하지 않게 한다.
   refreshHomeHeading();
   updateFontPickerVisibility();
   window.scrollTo({top:0,behavior:'smooth'});
@@ -5508,7 +5652,7 @@ function changeStudentFromLearningHome(){
   showStudentSelectView();
 }
 
-async function requestSelectStudent(card,name){
+async function requestSelectStudent(card,name,triggerEl){
   window.__perfMark&&window.__perfMark('학생카드클릭:'+name);
   if(playerName===name) return; // 이미 선택된 이름을 또 눌러도 아무 일도 안 생기게
   if(testMode){
@@ -5565,6 +5709,7 @@ async function requestSelectStudent(card,name){
   }
   document.getElementById('name-confirm-overlay').classList.add('show');
   document.getElementById('name-confirm-overlay').style.display='flex';
+  __a11yDialogOpened_('name-confirm-overlay',triggerEl||card,closeNameConfirm);
 }
 
 function closePinOverlay(){
@@ -5572,6 +5717,7 @@ function closePinOverlay(){
   const el=document.getElementById('name-confirm-overlay');
   el.classList.remove('show');
   el.style.display='none';
+  __a11yDialogClosed_('name-confirm-overlay');
 }
 
 function closeNameConfirm(){
@@ -5674,8 +5820,8 @@ async function selectStudent(card,name){
   // 이전 학생의 학습시간을 백그라운드로 저장 (await 안 함 — 화면 전환 속도에 영향 없음)
   if(previousStudent) syncStudyTimeToServer(previousStudent,false);
 
-  // 1) 캐시/localStorage로 즉시 1차 렌더링 (서버 응답 기다리지 않음)
-  renderStudentCards();
+  // 1) 캐시/localStorage로 즉시 홈을 표시 (학생 선택 화면의 4명 카드 재렌더링은 홈에 불필요)
+  // 학생 선택 화면으로 돌아갈 때는 changeStudentFromLearningHome()에서 카드를 갱신한다.
   updateProgressColors();
   updateSelectedNameBanner();
   showLearningHomeView();
@@ -5683,7 +5829,11 @@ async function selectStudent(card,name){
   updateStudyTimeDisplays();
 
   // 2) 실제 학생만 서버 데이터를 백그라운드에서 조회
-  if(!isDeveloperTestMode()) loadStudentDataIfStale(name);
+  if(!isDeveloperTestMode()){
+    const studentDataPromise=loadStudentDataIfStale(name);
+    // 학생별 핵심 데이터가 시작된 뒤에만 초기 공통 조회(공개설정/메모 등)를 재개한다.
+    studentDataPromise.finally(()=>scheduleStartupBackgroundLoads_(0));
+  }
 
   if(testMode || isDeveloperTestMode()) return; // 관리자/TEST USER는 접속기록 남기지 않음
   if(!accessLoggedNames.has(name)){
@@ -5720,6 +5870,7 @@ function renderHomeSummaryCard(){
   const avatar=avatarMap[playerName]||(sInfo?sInfo.avatar:'⭐');
 
   const overall=getUnifiedProgressForUI(playerName);
+  banner.classList.toggle('summary-complete', !!overall.completed);
 
   // 미완료 단원 화면과 동일한 정규화 로직 재사용 — item/group 혼재 구조를 공통 형태로 통일
   // USE_UNIFIED_PROGRESS면 overall(이미 계산됨)에 담긴 incompleteItems를 그대로 재사용 — calculateOverallProgressV2 중복호출 방지
@@ -5784,11 +5935,11 @@ function renderHomeSummaryCard(){
       <div class="home-progress-bar"><div class="home-progress-fill" style="width:${overall.percent}%"></div></div>
       <span class="home-progress-pct">${overall.percent}%</span>
     </div>
-    <div class="home-incomplete-count">⏳ 미완료 학습 ${incompleteCount}개</div>
+    ${overall.completed?'':`<div class="home-incomplete-count">⏳ 미완료 학습 ${incompleteCount}개</div>`}
     <div class="home-studytime-block">
-      <div id="home-study-today" class="home-studytime-row">⏱ 오늘 공부시간 불러오는 중...</div>
-      <div id="home-study-week" class="home-studytime-row">📚 이번주 공부시간 불러오는 중...</div>
-      <div id="home-study-focus" class="home-studytime-row">🔥 집중도 -</div>
+      <div id="home-study-today" class="home-studytime-row"><span class="home-studytime-label">⏱ 오늘 공부시간</span> <span class="home-studytime-value">불러오는 중...</span></div>
+      <div id="home-study-week" class="home-studytime-row"><span class="home-studytime-label">📚 이번주 공부시간</span> <span class="home-studytime-value">불러오는 중...</span></div>
+      <div id="home-study-focus" class="home-studytime-row"><span class="home-studytime-label">🔥 집중도</span> <span class="home-studytime-value">-</span></div>
     </div>
     ${resumeHtml}
     ${recentHtml}
@@ -5953,8 +6104,12 @@ function refreshTimelineGameResultViews(){
   try{
     if(document.getElementById('tlgScore-strip'))renderScoreStrip();
     if(document.getElementById('diff-list'))renderDiffList();
-    if(typeof renderHomeSummaryCard==='function')renderHomeSummaryCard();
-    if(typeof renderIncompleteUnitsSection==='function')renderIncompleteUnitsSection();
+    if(playerName && document.getElementById('learning-home-view')?.style.display==='block'){
+      scheduleHomeUiRefresh_();
+    }else{
+      if(typeof renderHomeSummaryCard==='function')renderHomeSummaryCard();
+      if(typeof renderIncompleteUnitsSection==='function')renderIncompleteUnitsSection();
+    }
   }catch(error){
     console.error('사건배열 결과 화면 갱신 실패:',error);
   }
@@ -7159,11 +7314,12 @@ function renderHistoryTrainingList(){
       ?('최초 점수 '+prog.firstScore+'점')
       :(done?'학습 완료':(progress.percent>0?(progress.percent+'% 진행중'):'아직 시작하지 않았어요'));
     const btnLabel=done?'다시 보기':getResumeButtonLabel(progress);
+    const btnStep=done?", 'reading'":'';
     return `<div class="ht-part-card${done?' done':''}" onclick="openHistoryTrainingPart('${part.id}')">
       <div class="ht-part-num">${part.partNumber}</div>
       <div class="ht-part-info"><b>${part.title}</b><span>${scoreText}</span></div>
       ${done?'<div class="ht-part-check">✅</div>':''}
-      <button class="ht-part-btn" onclick="event.stopPropagation();openHistoryTrainingPart('${part.id}')">${btnLabel}</button>
+      <button class="ht-part-btn" onclick="event.stopPropagation();openHistoryTrainingPart('${part.id}'${btnStep})">${btnLabel}</button>
     </div>`;
   }).join('');
   body.innerHTML+=renderHistorySummary1Card();
@@ -7197,7 +7353,9 @@ function openHistoryTrainingPart(partId, requestedStep){
   document.getElementById('ht-part-title').textContent='PART '+part.partNumber+' · '+part.title;
 
   const progress=store[partId];
-  const step=requestedStep || progress.currentStep || 'reading';
+  // 완료한 PART의 "다시 보기"는 완료 결과 화면이 아니라 학습 내용을 다시 여는 흐름으로 시작한다.
+  // completed/점수/기존 답안 데이터는 그대로 유지하고 현재 화면 단계만 읽기로 전환한다.
+  const step=requestedStep || (progress.completed?'reading':(progress.currentStep || 'reading'));
   htGoToStep(step);
 }
 
@@ -8856,7 +9014,11 @@ function closeParentPw(){
 
 function checkParentPassword(){
   const val=document.getElementById('parent-pw-input').value.trim();
-  if(val==='신천중부교회'){
+  if(!val){
+    document.getElementById('parent-pw-error').textContent='비밀번호를 입력해주세요.';
+    return;
+  }
+  if(val==='1111'){
     document.getElementById('parent-pw-overlay').classList.remove('show');
     enterStudyTimeViewerMode(); // 부모님 확인에서는 공부시간·집중시간을 완전히 차단
     renderParentScreen();
@@ -9149,7 +9311,7 @@ async function checkPassword(){
     if(!result || !result.ok){
       document.getElementById('pw-error').textContent = (result && result.error==='ADMIN_PASSWORD_NOT_CONFIGURED')
         ? '관리자 비밀번호가 아직 설정되지 않았어요. 관리자에게 문의해주세요.'
-        : '비밀번호가 올바르지 않습니다.';
+        : '비밀번호가 틀렸어요.';
       return;
     }
     window.__perfMark&&window.__perfMark('선생님 비밀번호창 닫힘(성공)');
@@ -9284,6 +9446,24 @@ function toggleStudentCard(name){
   if(arrow) arrow.textContent=isHidden?'▴':'▾';
 }
 
+function toggleStudentManagement(name){
+  const body=document.getElementById('src-management-body-'+name);
+  const arrow=document.getElementById('src-management-arrow-'+name);
+  if(!body)return;
+  const isHidden=body.style.display==='none';
+  body.style.display=isHidden?'block':'none';
+  if(arrow) arrow.textContent=isHidden?'▴':'▾';
+}
+
+function toggleTeacherGlobalManagement(){
+  const body=document.getElementById('teacher-global-management-body');
+  const arrow=document.getElementById('teacher-global-management-arrow');
+  if(!body)return;
+  const isHidden=body.style.display==='none';
+  body.style.display=isHidden?'block':'none';
+  if(arrow) arrow.textContent=isHidden?'▴':'▾';
+}
+
 function computeCompletionPercent(name, allEntries){
   const mine=allEntries.filter(e=>e.name===name);
   const unitKeys=getActiveUnitKeys();
@@ -9393,7 +9573,6 @@ async function showTeacherNoAuth(){
       <div class="teacher-stat-card"><div class="teacher-stat-num">${totalStudentsCount}명</div><div class="teacher-stat-label">전체 학생 수</div></div>
       <div class="teacher-stat-card"><div class="teacher-stat-num">${avgProgress}%</div><div class="teacher-stat-label">평균 진행률</div></div>
       <div class="teacher-stat-card"><div class="teacher-stat-num">${completedCount}명</div><div class="teacher-stat-label">완료한 학생</div></div>
-      <div class="teacher-stat-card warn"><div class="teacher-stat-num">${noSubmitCount}명</div><div class="teacher-stat-label">접속 기록 없음</div></div>
     `;
   }
 
@@ -9472,8 +9651,6 @@ async function showTeacherNoAuth(){
     c.innerHTML=`<div class="src-header" onclick="toggleStudentCard('${s.name}')" style="cursor:pointer">
         <span class="src-avatar">${renderAvatarHtml(avatarMap[s.name]||s.avatar,26)}</span>
         <span class="src-name">${s.name}</span>
-        <span class="src-badge ${easyDone?'badge-done':'badge-none'}">기본 ${easyDone?'✅':'❌'}</span>
-        <span class="src-badge ${hardDone?'badge-done':'badge-none'}">심화 ${hardDone?'✅':'❌'}</span>
         <span id="src-body-arrow-${s.name}" style="color:var(--sand);font-size:12px;margin-left:4px">▾</span>
       </div>
       <div class="src-body" id="src-body-${s.name}" style="display:none">
@@ -9495,25 +9672,31 @@ async function showTeacherNoAuth(){
         ${(()=>{
           const t=getStudyTimeSummary(s.name);
           return `<div class="src-progress" style="margin-top:10px">
-            <div class="src-progress-label">⏱ 오늘 ${formatStudySeconds(t.todaySeconds)} · 이번 주 ${formatStudySeconds(t.weekSeconds)} · 누적 ${formatStudySeconds(t.totalSeconds)} · 집중도 ${t.focusPercent}% · 🎯 집중모드 ${formatStudySeconds(t.focusModeTodaySeconds)} · 이탈 ${t.focusModeLeaveCount}회</div>
+            <div class="src-progress-label">⏱ 오늘 ${formatStudySeconds(t.todaySeconds)} · 이번 주 ${formatStudySeconds(t.weekSeconds)} · 누적 ${formatStudySeconds(t.totalSeconds)}</div>
           </div>`;
         })()}
-        <div class="src-access">${lastAccess?`🕐 최근 접속: ${lastAccess} (총 ${accessCount}회)`:'🕐 접속 기록 없음'}</div>
+        <div class="src-access">${lastAccess?`🕐 최근 접속: ${lastAccess}`:'🕐 접속 기록 없음'}</div>
         <div class="note-edit-row">
           <input type="text" class="note-input" id="note-input-${s.name}" placeholder="예: 오늘 결석, 병원 진료 등" value="${(noteMap[s.name]||'').replace(/"/g,'&quot;')}"/>
           <button class="note-save-btn" onclick="saveNoteUI('${s.name}')">저장</button>
         </div>
-        <button class="teacher-back" style="margin-bottom:10px" onclick="event.stopPropagation();openStudyPlannerForViewer('${s.name}','teacher')">📅 ${s.name} 스터디플래너 확인</button>
-        <div class="attempts-toggle" onclick="toggleAttempts('${s.name}')">
-          <span>📋 상세 기록 보기</span><span id="attempts-arrow-${s.name}">▾</span>
+        <button class="teacher-back teacher-planner-row" style="margin-bottom:10px" onclick="event.stopPropagation();openStudyPlannerForViewer('${s.name}','teacher')">📅 스터디플래너 확인 <span aria-hidden="true">›</span></button>
+        <div class="src-management-toggle" onclick="event.stopPropagation();toggleStudentManagement('${s.name}')">
+          <span>⚙️ 관리 및 상세 기록</span><span id="src-management-arrow-${s.name}">▾</span>
         </div>
-        <div class="attempts-list" id="attempts-list-${s.name}" style="display:none">${attemptsHtml}</div>
-        <div class="date-reset-row">
-          <input type="date" id="reset-date-${s.name}" class="date-reset-input"/>
-          <button class="date-reset-btn" onclick="resetStudentByDateUI(this,'${s.name}')">🗓️ 이 날짜만</button>
+        <div class="src-management-body" id="src-management-body-${s.name}" style="display:none">
+          ${(()=>{ const t=getStudyTimeSummary(s.name); return `<div class="src-detail src-management-metrics">집중도 ${t.focusPercent}% · 🎯 집중모드 ${formatStudySeconds(t.focusModeTodaySeconds)} · 이탈 ${t.focusModeLeaveCount}회 · 총 접속 ${accessCount}회</div>`; })()}
+          <div class="attempts-toggle" onclick="toggleAttempts('${s.name}')">
+            <span>📋 상세 기록 보기</span><span id="attempts-arrow-${s.name}">▾</span>
+          </div>
+          <div class="attempts-list" id="attempts-list-${s.name}" style="display:none">${attemptsHtml}</div>
+          <div class="date-reset-row">
+            <input type="date" id="reset-date-${s.name}" class="date-reset-input"/>
+            <button class="date-reset-btn" onclick="resetStudentByDateUI(this,'${s.name}')">🗓️ 이 날짜만</button>
+          </div>
+          <button class="student-reset-btn" onclick="resetStudentRecords(this,'${s.name}')">🗑️ ${s.name} 기록만 초기화</button>
+          <button class="student-reset-btn" style="background:rgba(90,122,165,0.12);color:#7FB0D8;border-color:rgba(90,122,165,0.3)" onclick="resetPinUI('${s.name}')">🔑 ${s.name} 비밀번호 초기화</button>
         </div>
-        <button class="student-reset-btn" onclick="resetStudentRecords(this,'${s.name}')">🗑️ ${s.name} 기록만 초기화</button>
-        <button class="student-reset-btn" style="background:rgba(90,122,165,0.12);color:#7FB0D8;border-color:rgba(90,122,165,0.3)" onclick="resetPinUI('${s.name}')">🔑 ${s.name} 비밀번호 초기화</button>
       </div>`;
     grid.appendChild(c);
   });
@@ -10227,7 +10410,7 @@ function goHome(){
   document.body.classList.remove('parent-unit-practice');
   parentChildViewActive=false;
   parentChildViewName='';
-  document.getElementById('parent-child-view-bar')?.remove();viewerModeActive=false;stopTimer();if(forcedReviewTimer){clearTimeout(forcedReviewTimer);forcedReviewTimer=null;}quizActiveFlag=false;document.getElementById('result-screen').style.display='none';document.getElementById('teacher-screen').style.display='none';document.getElementById('parent-screen').style.display='none';document.getElementById('timeline-game-screen').style.display='none';document.getElementById('king-order-screen').style.display='none';document.getElementById('ht-list-screen').style.display='none';document.getElementById('ht-part-screen').style.display='none';document.getElementById('summary-screen').style.display='none';document.getElementById('lecture-screen').style.display='none';document.getElementById('qbank-screen').style.display='none';document.getElementById('map-study-list-screen').style.display='none';document.getElementById('map-study-quiz-screen').style.display='none';document.getElementById('map-study-learn-screen').style.display='none';document.getElementById('start-screen').style.display='block';levelSectionVisible=false;const lw=document.getElementById('level-section-wrapper');if(lw)lw.style.display='none';renderStudentGrid();updateSelectedNameBanner();if(playerName){showLearningHomeView();}else{showStudentSelectView();}}
+  document.getElementById('parent-child-view-bar')?.remove();viewerModeActive=false;stopTimer();if(forcedReviewTimer){clearTimeout(forcedReviewTimer);forcedReviewTimer=null;}quizActiveFlag=false;document.getElementById('result-screen').style.display='none';document.getElementById('teacher-screen').style.display='none';document.getElementById('parent-screen').style.display='none';document.getElementById('timeline-game-screen').style.display='none';document.getElementById('king-order-screen').style.display='none';document.getElementById('ht-list-screen').style.display='none';document.getElementById('ht-part-screen').style.display='none';document.getElementById('summary-screen').style.display='none';document.getElementById('lecture-screen').style.display='none';document.getElementById('qbank-screen').style.display='none';document.getElementById('map-study-list-screen').style.display='none';document.getElementById('map-study-quiz-screen').style.display='none';document.getElementById('map-study-learn-screen').style.display='none';document.getElementById('start-screen').style.display='block';levelSectionVisible=false;const lw=document.getElementById('level-section-wrapper');if(lw)lw.style.display='none';renderStudentGrid({refreshData:true});updateSelectedNameBanner();if(playerName){showLearningHomeView();}else{showStudentSelectView();}}
 
 function showSummary(){
   document.getElementById('start-screen').style.display='none';
@@ -10363,8 +10546,12 @@ async function runStartupBackgroundLoads_(){
     if(__isBackgroundGenerationStale(myGen))return;
     const runProgressRefresh_=()=>{
       if(__isBackgroundGenerationStale(myGen))return;
-      renderUnitGrid();
-      refreshStudentProgressUI(playerName, {includeStudentList:true});
+      // 학생 카드용 서버 데이터(진행률/공부시간/접속기록)가 여기서 모두 반영됨 — 스켈레톤 해제 신호
+      studentCardServerDataReady=true;
+      studentCardServerDataFailed=false;
+      if(studentCardDataTimeoutTimer){ clearTimeout(studentCardDataTimeoutTimer); studentCardDataTimeoutTimer=null; }
+      if(playerName) scheduleHomeUiRefresh_({rebuildUnits:true});
+      else renderUnitGrid();
       if(playerName) studentDataLoadedAt[playerName]=Date.now();
     };
     if(typeof UNITS==='undefined'){
@@ -10384,15 +10571,12 @@ function __startupTasksDef_(){
     (myGen)=>apiListNotes().then(map=>{ if(__isBackgroundGenerationStale(myGen))return; noteMap=map; }),
     (myGen)=>apiListMoods().then(map=>{ if(__isBackgroundGenerationStale(myGen))return; moodMap=map; }),
     (myGen)=>apiListAccessLog().then(log=>{ if(__isBackgroundGenerationStale(myGen))return; accessLogCache=log||[]; }),
-    (myGen)=>loadHistoryTrainingProgress().then(v=>{ if(__isBackgroundGenerationStale(myGen))return; return v; }),
-    (myGen)=>loadScore().then(v=>{ if(__isBackgroundGenerationStale(myGen))return; return v; }),
-    (myGen)=>apiListStudyTime().then(map=>{ if(__isBackgroundGenerationStale(myGen))return; studyTimeServerCache=map||{}; }),
-    (myGen)=>apiListKingOrderProgress().then(map=>{ if(__isBackgroundGenerationStale(myGen))return; applyKingOrderProgressMap_(map); }),
     (myGen)=>refreshHomeHeading().then(v=>{ if(__isBackgroundGenerationStale(myGen))return; return v; })
   ];
 }
 
 function scheduleStartupBackgroundLoads_(delay=1200){
+  if(!playerName)return;
   if(startupBackgroundLoadTimer)return;
   startupBackgroundLoadTimer=setTimeout(()=>{
     startupBackgroundLoadTimer=null;
@@ -10406,13 +10590,35 @@ function scheduleStartupBackgroundLoads_(delay=1200){
 
 // 학생이 첫 화면(이름선택)으로 돌아왔을 때만 남은 백그라운드 작업을 안전하게 재개
 function __resumeBackgroundLoadsAtStartScreen_(){
-  if(__startupTaskIndex<__startupTasksDef_().length){
+  if(playerName && __startupTaskIndex<__startupTasksDef_().length){
     scheduleStartupBackgroundLoads_(300);
   }
 }
 window.__resumeBackgroundLoadsAtStartScreen_=__resumeBackgroundLoadsAtStartScreen_;
 
-scheduleStartupBackgroundLoads_(1200);
+// 학생 카드 서버 데이터가 늦어져도 현재 카드 DOM은 유지하고, 진행 중인 백그라운드 요청의
+// 완료 결과를 기다린다. (네트워크가 끊겨도 기존 캐시 값이 오류 UI로 바뀌지 않음)
+function __armStudentCardDataWatchdog_(timeoutMs=10000){
+  if(studentCardDataTimeoutTimer){ clearTimeout(studentCardDataTimeoutTimer); }
+  studentCardDataTimeoutTimer=setTimeout(()=>{
+    studentCardDataTimeoutTimer=null;
+    if(!studentCardServerDataReady){
+      studentCardServerDataFailed=true;
+      // 진행 중인 요청이 늦게 끝날 수 있으므로 현재 카드 DOM은 그대로 둔다.
+      // 완료 시 runStartupBackgroundLoads_()가 정상 데이터로 한 번만 갱신한다.
+    }
+  },timeoutMs);
+}
+__armStudentCardDataWatchdog_();
+
+// 기존 백그라운드 로딩 진입점(scheduleStartupBackgroundLoads_)을 재사용하는 호환용 재시도 함수.
+function retryStudentCardServerData_(){
+  studentCardServerDataFailed=false;
+  renderStudentCards();
+  __armStudentCardDataWatchdog_();
+  scheduleStartupBackgroundLoads_(0);
+}
+window.retryStudentCardServerData_=retryStudentCardServerData_;
 
 function closeAvatarHint(){
   document.getElementById('avatar-hint-overlay').classList.remove('show');
@@ -10669,14 +10875,14 @@ function updateStudyTimeDisplays(){
   const weekEl=document.getElementById('home-study-week');
   const focusEl=document.getElementById('home-study-focus');
   if(s){
-    if(todayEl) todayEl.textContent=`⏱ 오늘 공부시간 ${formatStudyClock(s.todaySeconds)}`;
-    if(weekEl) weekEl.textContent=`📚 이번주 공부시간 ${formatStudySeconds(s.weekSeconds)}`;
-    if(focusEl) focusEl.textContent=`🔥 집중도 ${s.focusPercent}%`;
+    if(todayEl) todayEl.innerHTML=`<span class="home-studytime-label">⏱ 오늘 공부시간</span> <span class="home-studytime-value">${formatStudyClock(s.todaySeconds)}</span>`;
+    if(weekEl) weekEl.innerHTML=`<span class="home-studytime-label">📚 이번주 공부시간</span> <span class="home-studytime-value">${formatStudySeconds(s.weekSeconds)}</span>`;
+    if(focusEl) focusEl.innerHTML=`<span class="home-studytime-label">🔥 집중도</span> <span class="home-studytime-value">${s.focusPercent}%</span>`;
   }
   // 구버전 마크업(한 줄 표시)이 남아있는 화면을 위한 하위호환
   const home=document.getElementById('home-study-time');
   if(home&&s){
-    home.textContent=`⏱ 오늘 ${formatStudyClock(s.todaySeconds)} · 이번 주 ${formatStudySeconds(s.weekSeconds)} · 집중도 ${s.focusPercent}%`;
+    home.innerHTML=`<span class="home-studytime-label">⏱ 오늘</span> <span class="home-studytime-value">${formatStudyClock(s.todaySeconds)}</span> · <span class="home-studytime-label">이번 주</span> <span class="home-studytime-value">${formatStudySeconds(s.weekSeconds)}</span> · <span class="home-studytime-label">집중도</span> <span class="home-studytime-value">${s.focusPercent}%</span>`;
   }
 }
 
