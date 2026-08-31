@@ -12390,7 +12390,17 @@ function renderMathResult(){
 function reviewMathConcept(id){commitMathProgress({phase:'core-concept',conceptId:id,questionId:null});renderMathPhase();}
 function completeMathLearning(){mathEntryIntro=false;mathProgress.completed=true;mathProgress.completedAt=new Date().toISOString();commitMathProgress({phase:'result',conceptId:null,questionId:null});SFX.complete();showToast2('✅ 수학개념학습을 완료했어요!');renderMathPhase();}
 function showSavedMathResult(){mathEntryIntro=false;commitMathProgress({phase:'result'});renderMathPhase();}
-function restartMathLearning(){mathEntryIntro=false;const student=STUDENTS.find(s=>s.name===mathActiveStudent);mathProgress=defaultMathProgress(student);commitMathProgress({phase:'prerequisite-check',questionId:mathActiveUnit.prerequisites[0].question.id});renderMathPhase();}
+function restartMathLearning(){
+  mathEntryIntro=false;
+  const student=STUDENTS.find(s=>s.name===mathActiveStudent);
+  const previousRevision=Math.max(Number(mathProgress?.syncRevision)||0,Number(mathProgress?.lastServerRevision)||0);
+  const previousServerRevision=Number(mathProgress?.lastServerRevision)||0;
+  mathProgress=defaultMathProgress(student);
+  mathProgress.syncRevision=previousRevision;
+  mathProgress.lastServerRevision=previousServerRevision;
+  commitMathProgress({phase:'prerequisite-check',questionId:mathActiveUnit.prerequisites[0].question.id});
+  renderMathPhase();
+}
 
 // ===== 기존 inline script 9 =====
 onAppDomReady_(()=>{
