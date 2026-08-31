@@ -12302,31 +12302,10 @@ function setMathPhaseLabel(text){const el=document.getElementById('math-step-lab
 function renderMathCard(kicker,title,body){document.getElementById('math-concept-root').innerHTML=`<section class="math-card"><div class="math-kicker">${mathEscape(kicker)}</div><h2>${mathEscape(title)}</h2>${body}</section>`;}
 
 async function openMathConceptLearning(){
-  if(!playerName){showToast2('⚠️ 먼저 학생으로 로그인해주세요.');return;}
-  const student=STUDENTS.find(s=>s.name===playerName);
-  if(!student)return;
-  try{await loadMathConceptContent();}catch(error){console.error(error);showToast2('⚠️ 수학 학습자료를 불러오지 못했어요.');return;}
-  const unit=mathUnitForStudent(student);
-  if(!unit){showToast2('⏳ 이 학년 수학개념학습은 다음 단계에서 열려요.');return;}
-  const localSaved=readRawLocalMathProgress(student);
-  console.info('[MathProgress v2] localStorage progress',localSaved);
-  mathActiveStudent=student.name;mathActiveUnit=unit;mathProgress=normalizeMathProgress(localSaved,student);
-  mathProgressTrace('local normalized',mathProgress,unit);
-  mathSelectedAnswer='';mathFeedback=null;mathEntryIntro=true;
-  htShowOnlyScreen('math-concept-screen');renderMathPhase();
-  apiGetMathConceptProgress(student.name).then(result=>{
-    if(mathActiveStudent!==student.name||!result?.ok)return;
-    const refreshIntro=mathEntryIntro;
-    console.info('[MathProgress v2] server progress',result.data||null);
-    console.info('[MathProgress v2] merge versions',{serverContentVersion:Number(result.data?.contentVersion||1),localContentVersion:Number(mathProgress?.contentVersion||1)});
-    if(result.data)mathProgress=mergeMathProgress(mathProgress,result.data,student);
-    mathProgressTrace('merged',mathProgress,unit);
-    writeLocalMathProgress();
-    if(refreshIntro)renderMathPhase();
-    if(mathProgress.pendingSync)queueMathServerSave();
-  });
+  if(!window.MathFlowV2){showToast2('⚠️ 수학 화면을 불러오지 못했어요.');return;}
+  return window.MathFlowV2.open();
 }
-function closeMathConceptLearning(){mathSelectedAnswer='';mathFeedback=null;mathEntryIntro=false;mathActiveStudent='';mathActiveUnit=null;mathProgress=null;goHome();}
+function closeMathConceptLearning(){return window.MathFlowV2?.close();}
 function renderMathPhase(){
   if(!mathProgress||!mathActiveUnit)return;
   if(mathEntryIntro){renderMathIntro();window.scrollTo({top:0,behavior:'auto'});return;}
