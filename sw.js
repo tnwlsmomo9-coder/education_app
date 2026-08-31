@@ -1,10 +1,10 @@
-const CACHE_NAME = 'samguk-culture-quiz-v57-geometry-svg-fix';
+const CACHE_NAME = 'samguk-culture-quiz-v58-trig-unit';
 const ASSETS = [
   './index.html',
   './app.js?v=20260831-math-pre-submit-1',
   './math-flow-v2.js?v=20260901-flow-2',
   './learning-content.js?v=20260825-content-19',
-  './math-content.js?v=20260901-math-4',
+  './math-content.js?v=20260901-math-5',
   './manifest.json',
   './icon-192.png',
   './icon-512.png'
