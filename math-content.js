@@ -1,5 +1,5 @@
 /* Math Concept Content — 이하이 / 중1 / 일차방정식, 김주하 / 중2 / 도형의 성질, 전민건 / 중3 / 삼각비 / contentVersion 2 */
-window.MATH_CONTENT_VERSION="20260901-math-5";
+window.MATH_CONTENT_VERSION="20260901-math-6";
 window.MATH_CONTENT={version:2,units:{"linear-equation":{
   id:"linear-equation",grade:"middle1",gradeLabel:"중1",title:"일차방정식",contentVersion:2,
   prerequisites:[
@@ -65,3 +65,10 @@ window.MATH_CONTENT={version:2,units:{"linear-equation":{
   ]
 }}};
 window.MATH_CONCEPT_CONTENT=window.MATH_CONTENT;
+// 학년별 누적 단원 목록. 새 단원은 units에 추가하고 해당 학년 units 배열에 누적한 뒤
+// activeUnit만 새 단원 ID로 바꾼다. 이전 단원 객체와 진행 기록은 그대로 유지된다.
+window.MATH_CONTENT.grades={
+  middle1:{activeUnit:"linear-equation",units:["linear-equation"]},
+  middle2:{activeUnit:"geometry-properties",units:["geometry-properties"]},
+  middle3:{activeUnit:"trigonometric-ratios",units:["trigonometric-ratios"]}
+};

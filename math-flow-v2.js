@@ -1,4 +1,4 @@
-/* 중1 수학개념학습 v2 — 단일 state / 단일 renderer / 이벤트 위임 */
+/* 수학개념학습 v2 — 단원별 state / 단일 renderer / 이벤트 위임 */
 (function(){
   'use strict';
   const STORAGE_PREFIX='mathConceptProgress_v1:';
@@ -10,13 +10,31 @@
   const normalizeAnswer=value=>String(value??'').toLowerCase().replace(/\s+/g,'').replace(/[×*]/g,'x').replace(/°/g,'');
   const correct=(question,value)=>(question.acceptedAnswers||[question.correctAnswer]).some(answer=>normalizeAnswer(answer)===normalizeAnswer(value));
   const reviewQuestion=item=>item.review?.question||item.reviewQuestion;
-  const storageKey=()=>STORAGE_PREFIX+student.name;
+  const legacyStorageKey=()=>STORAGE_PREFIX+student.name;
+  const storageKey=()=>STORAGE_PREFIX+student.name+':'+unit.id;
+
+  // 기존 학생별 단일 키는 삭제하지 않고, unitId가 일치하는 단원의 새 키로 한 번만 복사한다.
+  function readLocalWithMigration(){
+    let current=null;
+    try{current=JSON.parse(localStorage.getItem(storageKey())||'null');}catch(error){}
+    if(current)return current;
+    let legacy=null;
+    try{legacy=JSON.parse(localStorage.getItem(legacyStorageKey())||'null');}catch(error){}
+    if(legacy&&legacy.studentKey===student.name&&legacy.unitId===unit.id){
+      if(!isLearningWriteBlocked()){
+        try{localStorage.setItem(storageKey(),JSON.stringify(legacy));}catch(error){console.warn('수학 v2 기존 기록 마이그레이션 실패:',error);}
+      }
+      return legacy;
+    }
+    return null;
+  }
 
   function initialState(revision=0){
     return {schemaVersion:1,contentVersion:Number(unit.contentVersion)||2,studentKey:student.name,grade:student.grade,unitId:unit.id,
       phase:'prerequisite',index:0,selectedAnswer:null,reviewQueue:[],
       prerequisite:{completed:false,results:{}},core:{visitedConceptIds:[],checks:{}},
       finalAssessment:{attempts:[],latestAnswers:{},correctCount:0,wrongConceptIds:[]},
+      wrongPractice:{items:{}},
       completed:false,completedAt:null,resume:{phase:'prerequisite-check',conceptId:null,questionId:unit.prerequisites[0].question.id},
       updatedAt:'',syncRevision:Number(revision)||0,lastServerRevision:Number(revision)||0,pendingSync:false};
   }
@@ -49,7 +67,8 @@
       reviewQueue:Array.isArray(raw.reviewQueue)?raw.reviewQueue.slice():Array.isArray(raw.resume?.reviewQueueIds)?raw.resume.reviewQueueIds.slice():[],
       prerequisite:{...base.prerequisite,...(raw.prerequisite||{}),results:{...(raw.prerequisite?.results||{})}},
       core:{...base.core,...(raw.core||{}),visitedConceptIds:[...(raw.core?.visitedConceptIds||[])],checks:{...(raw.core?.checks||{})}},
-      finalAssessment:{...base.finalAssessment,...(raw.finalAssessment||{}),attempts:[...(raw.finalAssessment?.attempts||[])],latestAnswers:{...(raw.finalAssessment?.latestAnswers||{})},wrongConceptIds:[...(raw.finalAssessment?.wrongConceptIds||[])]}};
+      finalAssessment:{...base.finalAssessment,...(raw.finalAssessment||{}),attempts:[...(raw.finalAssessment?.attempts||[])],latestAnswers:{...(raw.finalAssessment?.latestAnswers||{})},wrongConceptIds:[...(raw.finalAssessment?.wrongConceptIds||[])]},
+      wrongPractice:{...base.wrongPractice,...(raw.wrongPractice||{}),items:{...(raw.wrongPractice?.items||{})}}};
     return validPosition(state)?state:initialState(revision);
   }
 
@@ -72,12 +91,23 @@
   }
 
   function attempt(question,source){return {questionId:question.id,conceptId:question.conceptId,selectedAnswer:String(mathState.selectedAnswer),correct:correct(question,mathState.selectedAnswer),attemptedAt:new Date().toISOString(),source};}
+  function recordWrongAnswer(question,answer){
+    if(answer.correct)return;
+    const previous=mathState.wrongPractice.items[question.id]||{};
+    mathState.wrongPractice.items[question.id]={
+      ...previous,questionId:question.id,unitId:unit.id,question:question.question,
+      choices:Array.isArray(question.choices)?question.choices.slice():[],correctAnswer:String(question.correctAnswer),
+      diagram:String(question.diagram||''),
+      studentAnswer:String(answer.selectedAnswer),explanation:String(question.explanation||''),
+      source:answer.source,wrongAt:answer.attemptedAt,resolved:false,resolvedAt:null
+    };
+  }
   function persist(){
     syncResume();mathState.syncRevision=(Number(mathState.syncRevision)||0)+1;mathState.updatedAt=new Date().toISOString();mathState.pendingSync=true;sessionMutation++;
     if(!isLearningWriteBlocked()){try{localStorage.setItem(storageKey(),JSON.stringify(mathState));}catch(error){console.warn('수학 v2 로컬 저장 실패:',error);}queueSave();}
   }
   function queueSave(){pendingSnapshot=clone(mathState);if(saveSending||isLearningWriteBlocked())return;saveSending=true;(async()=>{
-    while(pendingSnapshot){const snapshot=pendingSnapshot;pendingSnapshot=null;try{const body=new URLSearchParams();body.set('action','saveMathConceptProgress');body.set('name',snapshot.studentKey);body.set('data',JSON.stringify(snapshot));body.set('isAdminMode',isAdminSessionActive()?'true':'false');const response=await fetch(API_URL,{method:'POST',body});const result=await response.json();if(result?.ok){mathState.lastServerRevision=Math.max(Number(mathState.lastServerRevision)||0,Number(result.savedRevision)||snapshot.syncRevision);mathState.pendingSync=mathState.syncRevision>mathState.lastServerRevision;}else if(result?.error==='STALE_REVISION'){mathState.syncRevision=Math.max(mathState.syncRevision,Number(result.savedRevision)||0)+1;mathState.updatedAt=new Date().toISOString();mathState.pendingSync=true;pendingSnapshot=clone(mathState);}else throw new Error(result?.error||'SAVE_FAILED');if(!isLearningWriteBlocked())localStorage.setItem(storageKey(),JSON.stringify(mathState));}catch(error){console.warn('수학 v2 서버 저장 보류:',error);mathState.pendingSync=true;if(!isLearningWriteBlocked())localStorage.setItem(storageKey(),JSON.stringify(mathState));}}
+    while(pendingSnapshot){const snapshot=pendingSnapshot;pendingSnapshot=null;try{const body=new URLSearchParams();body.set('action','saveMathConceptProgress');body.set('name',snapshot.studentKey);body.set('unitId',snapshot.unitId);body.set('data',JSON.stringify(snapshot));body.set('isAdminMode',isAdminSessionActive()?'true':'false');const response=await fetch(API_URL,{method:'POST',body});const result=await response.json();if(result?.ok){mathState.lastServerRevision=Math.max(Number(mathState.lastServerRevision)||0,Number(result.savedRevision)||snapshot.syncRevision);mathState.pendingSync=mathState.syncRevision>mathState.lastServerRevision;}else if(result?.error==='STALE_REVISION'){mathState.syncRevision=Math.max(mathState.syncRevision,Number(result.savedRevision)||0)+1;mathState.updatedAt=new Date().toISOString();mathState.pendingSync=true;pendingSnapshot=clone(mathState);}else throw new Error(result?.error||'SAVE_FAILED');if(!isLearningWriteBlocked())localStorage.setItem(storageKey(),JSON.stringify(mathState));}catch(error){console.warn('수학 v2 서버 저장 보류:',error);mathState.pendingSync=true;if(!isLearningWriteBlocked())localStorage.setItem(storageKey(),JSON.stringify(mathState));}}
     saveSending=false;
   })();}
 
@@ -95,7 +125,7 @@
   }
   function setStep(text){const el=document.getElementById('math-step-label');if(el)el.textContent=text;}
 
-  function submit(){const q=currentQuestion();if(!q||mathState.selectedAnswer===null)return;const a=attempt(q,mathState.phase==='prerequisite'?'prerequisite':mathState.phase==='review'?'prerequisite-review':mathState.phase==='core-check'?'concept-check':'final');
+  function submit(){const q=currentQuestion();if(!q||mathState.selectedAnswer===null)return;const a=attempt(q,mathState.phase==='prerequisite'?'prerequisite':mathState.phase==='review'?'prerequisite-review':mathState.phase==='core-check'?'concept-check':'final');recordWrongAnswer(q,a);
     if(mathState.phase==='prerequisite'){const item=unit.prerequisites[mathState.index];mathState.prerequisite.results[item.id]={status:a.correct?'understood':'needs-review',correct:a.correct,attempts:[...(mathState.prerequisite.results[item.id]?.attempts||[]),a],updatedAt:a.attemptedAt};mathState.selectedAnswer=null;if(mathState.index<unit.prerequisites.length-1)mathState.index++;else{mathState.prerequisite.completed=true;mathState.reviewQueue=unit.prerequisites.filter(item=>mathState.prerequisite.results[item.id]?.status==='needs-review'&&!mathState.prerequisite.results[item.id]?.reviewCompleted).map(item=>item.id);mathState.phase='prerequisite-result';mathState.index=0;}}
     else if(mathState.phase==='review'){const id=mathState.reviewQueue[mathState.index],r=mathState.prerequisite.results[id];r.reviewCompleted=true;r.reviewAttempts=[...(r.reviewAttempts||[]),a];r.updatedAt=a.attemptedAt;mathState.selectedAnswer=null;if(mathState.index<mathState.reviewQueue.length-1)mathState.index++;else{mathState.phase='prerequisite-result';mathState.index=0;}}
     else if(mathState.phase==='core-check'){const c=unit.coreConcepts[mathState.index];mathState.core.checks[c.id]={correct:a.correct,attempts:[...(mathState.core.checks[c.id]?.attempts||[]),a],updatedAt:a.attemptedAt};mathState.selectedAnswer=null;if(mathState.index<unit.coreConcepts.length-1){mathState.phase='core';mathState.index++;}else{mathState.phase='final';mathState.index=0;}}
@@ -105,9 +135,9 @@
 
   function handleClick(event){const button=event.target.closest('button[data-math-action]');if(!button||button.disabled)return;const action=button.dataset.mathAction;if(action==='select'){mathState.selectedAnswer=currentQuestion().choices[Number(button.dataset.choiceIndex)];renderMathScreen();}else if(action==='submit'){button.disabled=true;submit();}else if(action==='start-review'){mathState.phase='review';mathState.index=0;mathState.selectedAnswer=null;persist();renderMathScreen();}else if(action==='start-core'){mathState.phase='core';mathState.index=0;mathState.selectedAnswer=null;persist();renderMathScreen();}else if(action==='open-core-check'){const id=unit.coreConcepts[mathState.index].id;if(!mathState.core.visitedConceptIds.includes(id))mathState.core.visitedConceptIds.push(id);mathState.phase='core-check';mathState.selectedAnswer=null;persist();renderMathScreen();}else if(action==='complete'){mathState.completed=true;mathState.completedAt=new Date().toISOString();persist();renderMathScreen();}}
 
-  async function loadServer(openMutation,sequence){try{const response=await fetch(API_URL+'?action=getMathConceptProgress&name='+encodeURIComponent(student.name),{cache:'no-store'}),payload=await response.json();if(sequence!==loadSequence||!payload?.ok)return;const server=payload.data,serverRevision=Number(server?.syncRevision)||0;if(sessionMutation!==openMutation){mathState.lastServerRevision=Math.max(mathState.lastServerRevision,serverRevision);if(mathState.syncRevision<=serverRevision){mathState.syncRevision=serverRevision+1;mathState.pendingSync=true;queueSave();}return;}const local=mathState,serverState=normalizeProgress(server);const serverIsV2=Number(server?.contentVersion||1)===Number(unit.contentVersion);if(serverIsV2&&(serverState.syncRevision>local.syncRevision||(serverState.syncRevision===local.syncRevision&&String(serverState.updatedAt||'')>String(local.updatedAt||''))))mathState=serverState;else{mathState.lastServerRevision=Math.max(mathState.lastServerRevision,serverRevision);mathState.syncRevision=Math.max(mathState.syncRevision,serverRevision);}if(!isLearningWriteBlocked())localStorage.setItem(storageKey(),JSON.stringify(mathState));renderMathScreen();}catch(error){console.warn('수학 v2 서버 조회 실패:',error);}}
+  async function loadServer(openMutation,sequence){try{const response=await fetch(API_URL+'?action=getMathConceptProgress&name='+encodeURIComponent(student.name)+'&unitId='+encodeURIComponent(unit.id),{cache:'no-store'}),payload=await response.json();if(sequence!==loadSequence||!payload?.ok)return;const server=payload.data,serverRevision=Number(server?.syncRevision)||0;if(sessionMutation!==openMutation){mathState.lastServerRevision=Math.max(mathState.lastServerRevision,serverRevision);if(mathState.syncRevision<=serverRevision){mathState.syncRevision=serverRevision+1;mathState.pendingSync=true;queueSave();}return;}const local=mathState,serverState=normalizeProgress(server);const serverIsV2=server?.unitId===unit.id&&Number(server?.contentVersion||1)===Number(unit.contentVersion);if(serverIsV2&&(serverState.syncRevision>local.syncRevision||(serverState.syncRevision===local.syncRevision&&String(serverState.updatedAt||'')>String(local.updatedAt||''))))mathState=serverState;else{mathState.lastServerRevision=Math.max(mathState.lastServerRevision,serverRevision);mathState.syncRevision=Math.max(mathState.syncRevision,serverRevision);}if(!isLearningWriteBlocked())localStorage.setItem(storageKey(),JSON.stringify(mathState));renderMathScreen();}catch(error){console.warn('수학 v2 서버 조회 실패:',error);}}
 
-  async function open(){student=STUDENTS.find(item=>item.name===playerName);if(!student)return;const content=await loadMathConceptContent();unit=content.units[student.mathUnitId];if(!unit){showToast2('⏳ 이 학년 수학개념학습은 준비 중이에요.');return;}screen=document.getElementById('math-concept-screen');root=document.getElementById('math-concept-root');if(!bound){screen.addEventListener('click',handleClick);bound=true;}let raw=null;try{raw=JSON.parse(localStorage.getItem(STORAGE_PREFIX+student.name)||'null');}catch(error){}mathState=normalizeProgress(raw);sessionMutation=0;const sequence=++loadSequence;htShowOnlyScreen('math-concept-screen');renderMathScreen();loadServer(sessionMutation,sequence);}
+  async function open(requestedUnitId){student=STUDENTS.find(item=>item.name===playerName);if(!student)return;const content=await loadMathConceptContent();const gradeConfig=content.grades?.[student.grade];const unitId=requestedUnitId||gradeConfig?.activeUnit||student.mathUnitId;unit=content.units[unitId];if(!unit||unit.grade!==student.grade){showToast2('⏳ 이 학년 수학개념학습은 준비 중이에요.');return;}screen=document.getElementById('math-concept-screen');root=document.getElementById('math-concept-root');if(!bound){screen.addEventListener('click',handleClick);bound=true;}mathState=normalizeProgress(readLocalWithMigration());sessionMutation=0;const sequence=++loadSequence;htShowOnlyScreen('math-concept-screen');renderMathScreen();loadServer(sessionMutation,sequence);}
   function close(){loadSequence++;mathState=null;unit=null;student=null;goHome();}
-  window.MathFlowV2={open,close,_test:{initialState:()=>initialState(),normalizeProgress,render:renderMathScreen,getState:()=>clone(mathState),setState:value=>{mathState=normalizeProgress(value);},submit,handleClick}};
+  window.MathFlowV2={open,close,_test:{initialState:()=>initialState(),normalizeProgress,render:renderMathScreen,getState:()=>clone(mathState),setState:value=>{mathState=normalizeProgress(value);},submit,handleClick,recordWrongAnswer}};
 })();

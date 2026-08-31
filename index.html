@@ -5,10 +5,10 @@
 <!-- app.js/learning-content.js는 아래에서 rAF 이후 동적으로 <script> 삽입되어 실행되지만,
      다운로드 자체는 여기서 미리 시작해두면 두 파일이 순차가 아니라 병렬로 받아져 초기 로딩이 빨라집니다.
      버전 쿼리(?v=...)는 실제 <script src=...> 값과 반드시 동일하게 유지해야 브라우저가 프리로드를 재사용합니다. -->
-<link rel="preload" as="script" href="app.js?v=20260831-math-pre-submit-1">
+<link rel="preload" as="script" href="app.js?v=20260901-math-wrong-1">
 <link rel="preload" as="script" href="learning-content.js?v=20260825-content-19">
-<link rel="preload" as="script" href="math-flow-v2.js?v=20260901-flow-2">
-<script src="math-flow-v2.js?v=20260901-flow-2"></script>
+<link rel="preload" as="script" href="math-flow-v2.js?v=20260901-flow-4">
+<script src="math-flow-v2.js?v=20260901-flow-4"></script>
 <script>
 // ===== ?perf=1 전용 임시 진단 모듈 =====
 // 일반 접속 시: 아래 IIFE는 조건검사 1줄만 실행하고 즉시 종료(추가 렌더링·fetch래핑·오버헤드 없음)
@@ -3633,15 +3633,22 @@ h1,h2,h3,.title-label{
       </div>
 
       <div class="subject-section-body">
-        <div class="section-label">📘 수학개념학습</div>
+        <div class="section-label">📘 오늘의 수학 개념학습</div>
         <div class="unit-grid">
           <div class="unit-card" id="math-unit-card" onclick="openMathConceptLearning()">
             <div class="unit-icon">📘</div>
             <div class="unit-info">
-              <div class="unit-title">수학개념학습</div>
-              <div class="unit-sub">선수개념부터 차근차근 이해하기</div>
+              <div class="unit-title" id="math-active-unit-title">수학개념학습</div>
+              <div class="unit-sub" id="math-active-unit-sub">선수개념부터 차근차근 이해하기</div>
             </div>
           </div>
+        </div>
+
+        <div id="math-previous-learning" style="display:none">
+          <div class="section-label subject-inner-label" style="display:flex;justify-content:flex-start;align-items:center;gap:8px;cursor:pointer" onclick="toggleSectionFold('math-previous-units','math-previous-arrow')">
+            <span>🗂️ 이전 학습</span><span id="math-previous-arrow" data-open="false"></span>
+          </div>
+          <div class="unit-grid" id="math-previous-units" style="display:none"></div>
         </div>
 
         <div class="section-label">✉️ 수학단원퀴즈 <span style="margin-left:auto;font-size:11px;color:#888">준비중</span></div>
@@ -3655,13 +3662,13 @@ h1,h2,h3,.title-label{
           </div>
         </div>
 
-        <div class="section-label">📊 오답연습 <span style="margin-left:auto;font-size:11px;color:#888">준비중</span></div>
+        <div class="section-label">📊 오답연습</div>
         <div class="unit-grid">
-          <div class="unit-card" style="opacity:.65;cursor:default">
+          <div class="unit-card" id="math-wrong-practice-card" onclick="openMathWrongPractice()">
             <div class="unit-icon">📊</div>
             <div class="unit-info">
-              <div class="unit-title">오답연습</div>
-              <div class="unit-sub">틀린 문제 자동 복습 (예정)</div>
+              <div class="unit-title">수학 오답연습</div>
+              <div class="unit-sub" id="math-wrong-practice-sub">등록된 오답이 없어요</div>
             </div>
           </div>
         </div>
@@ -4495,7 +4502,7 @@ h1,h2,h3,.title-label{
 
 <script>
 (()=>{
-  const APP_SCRIPT_URL='app.js?v=20260831-math-pre-submit-1';
+  const APP_SCRIPT_URL='app.js?v=20260901-math-wrong-1';
   window.__APP_SCRIPT_URL=APP_SCRIPT_URL; // 디버그 로그(app.js __perfMark)가 실제 로드 버전을 하드코딩 없이 참조하도록 노출
   window.__appMainReady=false;
   window.__pendingShellStudent='';
