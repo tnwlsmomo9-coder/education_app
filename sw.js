@@ -1,7 +1,7 @@
-const CACHE_NAME = 'samguk-culture-quiz-v52-math-v2';
+const CACHE_NAME = 'samguk-culture-quiz-v53-math-state-v2';
 const ASSETS = [
   './index.html',
-  './app.js?v=20260831-math-v2',
+  './app.js?v=20260831-math-state-v2-1',
   './learning-content.js?v=20260825-content-19',
   './math-content.js?v=20260831-math-2',
   './manifest.json',
@@ -56,19 +56,18 @@ self.addEventListener('fetch', (event) => {
   const isIndex=url.pathname.endsWith('/index.html')||url.pathname===scopeUrl.pathname;
 
   if(isNavigation||isIndex){
-    // 재방문은 저장된 가벼운 첫 화면을 즉시 보여주고 최신 index는 뒤에서 갱신합니다.
+    // 새 앱 버전의 상태 복원 로직이 즉시 적용되도록 최신 shell을 우선합니다.
     const networkPromise=refreshShellInBackground_(event.request,indexKey);
     event.waitUntil(networkPromise);
     event.respondWith((async()=>{
       const cached=await caches.match(indexKey);
-      return cached||(await networkPromise)||Response.error();
+      return (await networkPromise)||cached||Response.error();
     })());
     return;
   }
 
   if(url.pathname.endsWith('/learning-content.js')||url.pathname.endsWith('/math-content.js')){
-    // 재실행 때는 저장된 콘텐츠를 즉시 사용하고 최신본은 뒤에서 갱신합니다.
-    // 문제 파일을 새로 배포한 경우 이번 실행이 캐시를 갱신하고 다음 실행부터 새 자료가 적용됩니다.
+    // 버전이 바뀐 콘텐츠가 같은 실행에서 바로 적용되도록 네트워크를 우선합니다.
     const contentRefreshPromise=(async()=>{
       try{
         const response=await fetch(event.request,{cache:'no-cache'});
@@ -84,7 +83,7 @@ self.addEventListener('fetch', (event) => {
     event.waitUntil(contentRefreshPromise);
     event.respondWith((async()=>{
       const cached=await caches.match(event.request);
-      return cached||(await contentRefreshPromise)||Response.error();
+      return (await contentRefreshPromise)||cached||Response.error();
     })());
     return;
   }
