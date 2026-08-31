@@ -1,4 +1,4 @@
-const CACHE_NAME = 'samguk-culture-quiz-v58-trig-unit';
+const CACHE_NAME = 'samguk-culture-quiz-v59-math-card-color-fix';
 const ASSETS = [
   './index.html',
   './app.js?v=20260831-math-pre-submit-1',
