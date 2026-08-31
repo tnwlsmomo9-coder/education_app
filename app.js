@@ -12121,6 +12121,7 @@ let mathFeedback=null;
 let mathEntryIntro=false;
 let mathSaveSending=false;
 let mathPendingServerSnapshot=null;
+let mathPrerequisiteSubmitting=false;
 
 function loadMathConceptContent(){
   if(window.MATH_CONTENT||window.MATH_CONCEPT_CONTENT)return Promise.resolve(window.MATH_CONTENT||window.MATH_CONCEPT_CONTENT);
@@ -12347,16 +12348,40 @@ function startOrResumeMathLearning(){
 }
 function findPrerequisiteIndex(){const qid=mathProgress.resume.questionId;const idx=mathActiveUnit.prerequisites.findIndex(p=>p.question.id===qid);return idx>=0?idx:0;}
 function renderMathPrerequisiteCheck(){
-  const idx=findPrerequisiteIndex(),item=mathActiveUnit.prerequisites[idx];setMathPhaseLabel(`이전 개념 ${idx+1} / ${mathActiveUnit.prerequisites.length}`);
+  const idx=findPrerequisiteIndex(),item=mathActiveUnit.prerequisites[idx];
+  mathPrerequisiteSubmitting=false;
+  setMathPhaseLabel(`이전 개념 ${idx+1} / ${mathActiveUnit.prerequisites.length}`);
   renderMathCard('① 이전 개념 확인',item.title,mathQuestionHtml(item.question,'submitMathPrerequisite()'));
+  const root=document.getElementById('math-concept-root');
+  root.querySelectorAll('.math-choice').forEach((button,choiceIndex)=>{
+    button.removeAttribute('onclick');
+    button.addEventListener('click',()=>{
+      const choice=item.question.choices[choiceIndex];
+      console.info('[MathPrerequisite v2] choice click',{index:idx,questionId:item.question.id,choice});
+      selectMathAnswer(choice);
+      console.info('[MathPrerequisite v2] selectedAnswer',{selectedAnswer:mathSelectedAnswer});
+    });
+  });
+  const submitButton=root.querySelector('.math-actions .math-primary');
+  if(submitButton){
+    submitButton.removeAttribute('onclick');
+    submitButton.addEventListener('click',submitMathPrerequisite);
+  }
+  console.info('[MathPrerequisite v2] render',{phase:mathProgress.resume.phase,index:idx,questionId:item.question.id,resume:{...mathProgress.resume}});
 }
 function submitMathPrerequisite(){
   if(!String(mathSelectedAnswer).trim()){showToast2('답을 선택하거나 입력해주세요.');return;}
+  if(mathPrerequisiteSubmitting)return;
+  mathPrerequisiteSubmitting=true;
   const idx=findPrerequisiteIndex(),item=mathActiveUnit.prerequisites[idx],attempt=makeMathAttempt(item.question,mathSelectedAnswer,'prerequisite');
+  const submitButton=document.querySelector('#math-concept-root .math-actions .math-primary');
+  if(submitButton){submitButton.disabled=true;submitButton.setAttribute('aria-disabled','true');}
+  console.info('[MathPrerequisite v2] submit',{phase:mathProgress.resume.phase,index:idx,questionId:item.question.id,selectedAnswer:mathSelectedAnswer,correct:attempt.correct,syncRevision:mathProgress.syncRevision});
   const old=mathProgress.prerequisite.results[item.id]||{};
   mathProgress.prerequisite.results[item.id]={...old,status:attempt.correct?'understood':'needs-review',correct:attempt.correct,attempts:[...(old.attempts||[]),attempt],updatedAt:attempt.attemptedAt};
+  console.info('[MathPrerequisite v2] result saved',{conceptId:item.id,result:mathProgress.prerequisite.results[item.id]});
   mathFeedback={correct:attempt.correct,explanation:item.question.explanation};commitMathProgress();
-  setTimeout(()=>{mathSelectedAnswer='';mathFeedback=null;if(idx<mathActiveUnit.prerequisites.length-1)commitMathProgress({phase:'prerequisite-check',questionId:mathActiveUnit.prerequisites[idx+1].question.id});else{mathProgress.prerequisite.completed=true;commitMathProgress({phase:'prerequisite-result',questionId:null});}renderMathPhase();},500);
+  setTimeout(()=>{mathSelectedAnswer='';mathFeedback=null;if(idx<mathActiveUnit.prerequisites.length-1){const nextIndex=idx+1,nextQuestionId=mathActiveUnit.prerequisites[nextIndex].question.id;console.info('[MathPrerequisite v2] advance',{fromIndex:idx,toIndex:nextIndex,nextQuestionId});commitMathProgress({phase:'prerequisite-check',questionId:nextQuestionId});}else{mathProgress.prerequisite.completed=true;commitMathProgress({phase:'prerequisite-result',questionId:null});}renderMathPhase();},500);
 }
 function renderMathPrerequisiteResult(){
   setMathPhaseLabel('준비도 결과');
