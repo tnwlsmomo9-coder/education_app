@@ -4007,7 +4007,7 @@ function calculateMathConceptProgress(name){
   const percent=completed?100:0;
   return {
     percent, completed,
-    status: completed?'학습 완료':(valid?'미완료 학습':'시작 전'),
+    status: completed?'완료':'미완료',
     incompleteCount: completed?0:1,
     resumeTarget: completed?null:{type:'mathConcept'},
     completedAmount:percent, totalAmount:100,
@@ -4058,7 +4058,7 @@ function updateMathUnitCardStatus(){
     const progress=calculateMathConceptProgress(playerName);
     if(progress.includeInOverall!==false){
       completed=!!progress.completed;
-      incomplete=progress.status==='미완료 학습';
+      incomplete=!completed;
     }
   }
   card.classList.toggle('math-completed',completed);
