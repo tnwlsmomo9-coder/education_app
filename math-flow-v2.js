@@ -35,7 +35,7 @@
       prerequisite:{completed:false,results:{}},core:{visitedConceptIds:[],checks:{}},
       finalAssessment:{attempts:[],latestAnswers:{},correctCount:0,wrongConceptIds:[]},
       wrongPractice:{items:{}},
-      completed:false,completedAt:null,resume:{phase:'prerequisite-check',conceptId:null,questionId:unit.prerequisites[0].question.id},
+      completed:false,completedAt:null,firstCompletion:null,relearning:false,relearningHistory:[],resume:{phase:'prerequisite-check',conceptId:null,questionId:unit.prerequisites[0].question.id},
       updatedAt:'',syncRevision:Number(revision)||0,lastServerRevision:Number(revision)||0,pendingSync:false};
   }
 
@@ -68,7 +68,8 @@
       prerequisite:{...base.prerequisite,...(raw.prerequisite||{}),results:{...(raw.prerequisite?.results||{})}},
       core:{...base.core,...(raw.core||{}),visitedConceptIds:[...(raw.core?.visitedConceptIds||[])],checks:{...(raw.core?.checks||{})}},
       finalAssessment:{...base.finalAssessment,...(raw.finalAssessment||{}),attempts:[...(raw.finalAssessment?.attempts||[])],latestAnswers:{...(raw.finalAssessment?.latestAnswers||{})},wrongConceptIds:[...(raw.finalAssessment?.wrongConceptIds||[])]},
-      wrongPractice:{...base.wrongPractice,...(raw.wrongPractice||{}),items:{...(raw.wrongPractice?.items||{})}}};
+      wrongPractice:{...base.wrongPractice,...(raw.wrongPractice||{}),items:{...(raw.wrongPractice?.items||{})}},
+      firstCompletion:raw.firstCompletion?clone(raw.firstCompletion):null,relearning:raw.relearning===true,relearningHistory:Array.isArray(raw.relearningHistory)?clone(raw.relearningHistory):[]};
     return validPosition(state)?state:initialState(revision);
   }
 
@@ -95,7 +96,7 @@
     if(answer.correct)return;
     const previous=mathState.wrongPractice.items[question.id]||{};
     mathState.wrongPractice.items[question.id]={
-      ...previous,questionId:question.id,unitId:unit.id,question:question.question,
+      ...previous,questionId:question.id,unitId:unit.id,conceptId:String(question.conceptId||answer.conceptId||''),question:question.question,
       choices:Array.isArray(question.choices)?question.choices.slice():[],correctAnswer:String(question.correctAnswer),
       diagram:String(question.diagram||''),
       studentAnswer:String(answer.selectedAnswer),explanation:String(question.explanation||''),
@@ -120,7 +121,8 @@
     else if(phase==='core'){const c=unit.coreConcepts[mathState.index],lesson=c.lesson;setStep(`④ 핵심개념 ${mathState.index+1} / ${unit.coreConcepts.length}`);root.innerHTML=`<section class="math-card"><div class="math-kicker">핵심개념</div><h2>${esc(c.title)}</h2><p>${esc(lesson.summary)}</p><p><strong>${esc(lesson.keyPoint)}</strong></p><div class="math-equation">${esc(lesson.example)}</div>${lesson.diagram?`<div class="math-diagram">${lesson.diagram}</div>`:''}<div class="math-actions"><button type="button" class="math-primary" data-math-action="open-core-check">확인문제 풀기 →</button></div></section>`;}
     else if(phase==='core-check'){setStep(`⑤ 확인문제 ${mathState.index+1} / ${unit.coreConcepts.length}`);root.innerHTML=questionHtml(currentQuestion(),'개념별 확인문제');}
     else if(phase==='final'){setStep(`⑥ 마지막 확인 ${mathState.index+1} / ${unit.finalQuestions.length}`);root.innerHTML=questionHtml(currentQuestion(),`마지막 확인 ${mathState.index+1}번`);}
-    else {setStep('⑦ 학습 결과');root.innerHTML=`<section class="math-card"><div class="math-kicker">오늘의 수학 개념 결과</div><h2>${mathState.finalAssessment.correctCount} / ${unit.finalQuestions.length} 정답</h2><div class="math-actions"><button type="button" class="math-primary" data-math-action="complete">학습 완료하기</button></div></section>`;}
+    else if(mathState.completed&&!mathState.relearning){setStep('학습 완료');root.innerHTML=`<section class="math-card"><div class="math-kicker">완료된 수학개념학습</div><h2>${esc(unit.title)}</h2><p>완료 기록은 그대로 유지돼요. 처음부터 다시 학습할 수 있어요.</p><div class="math-actions"><button type="button" class="math-primary" data-math-action="restart">다시 학습하기</button></div></section>`;}
+    else {setStep('⑦ 학습 결과');root.innerHTML=`<section class="math-card"><div class="math-kicker">${mathState.relearning?'재학습':'오늘의 수학 개념'} 결과</div><h2>${mathState.finalAssessment.correctCount} / ${unit.finalQuestions.length} 정답</h2><div class="math-actions"><button type="button" class="math-primary" data-math-action="complete">${mathState.relearning?'재학습 완료하기':'학습 완료하기'}</button></div></section>`;}
     console.info('[MathFlow v2] render',{phase:mathState.phase,index:mathState.index,questionId:currentQuestion()?.id||null,revision:mathState.syncRevision});
   }
   function setStep(text){const el=document.getElementById('math-step-label');if(el)el.textContent=text;}
@@ -133,11 +135,19 @@
     persist();renderMathScreen();
   }
 
-  function handleClick(event){const button=event.target.closest('button[data-math-action]');if(!button||button.disabled)return;const action=button.dataset.mathAction;if(action==='select'){mathState.selectedAnswer=currentQuestion().choices[Number(button.dataset.choiceIndex)];renderMathScreen();}else if(action==='submit'){button.disabled=true;submit();}else if(action==='start-review'){mathState.phase='review';mathState.index=0;mathState.selectedAnswer=null;persist();renderMathScreen();}else if(action==='start-core'){mathState.phase='core';mathState.index=0;mathState.selectedAnswer=null;persist();renderMathScreen();}else if(action==='open-core-check'){const id=unit.coreConcepts[mathState.index].id;if(!mathState.core.visitedConceptIds.includes(id))mathState.core.visitedConceptIds.push(id);mathState.phase='core-check';mathState.selectedAnswer=null;persist();renderMathScreen();}else if(action==='complete'){mathState.completed=true;mathState.completedAt=new Date().toISOString();persist();renderMathScreen();}}
+  function completionSnapshot(state,completedAt){return {completedAt:completedAt||state.completedAt||new Date().toISOString(),prerequisite:clone(state.prerequisite),core:clone(state.core),finalAssessment:clone(state.finalAssessment)};}
+  function restartCompletedLearning(){
+    if(!mathState?.completed)return;
+    const original=mathState,firstCompletion=original.firstCompletion||completionSnapshot(original,original.completedAt);
+    mathState={...initialState(original.syncRevision),completed:true,completedAt:original.completedAt,firstCompletion,relearning:true,
+      relearningHistory:clone(original.relearningHistory||[]),wrongPractice:clone(original.wrongPractice),lastServerRevision:original.lastServerRevision,pendingSync:original.pendingSync};
+    persist();renderMathScreen();
+  }
+  function handleClick(event){const button=event.target.closest('button[data-math-action]');if(!button||button.disabled)return;const action=button.dataset.mathAction;if(action==='select'){mathState.selectedAnswer=currentQuestion().choices[Number(button.dataset.choiceIndex)];renderMathScreen();}else if(action==='submit'){button.disabled=true;submit();}else if(action==='start-review'){mathState.phase='review';mathState.index=0;mathState.selectedAnswer=null;persist();renderMathScreen();}else if(action==='start-core'){mathState.phase='core';mathState.index=0;mathState.selectedAnswer=null;persist();renderMathScreen();}else if(action==='open-core-check'){const id=unit.coreConcepts[mathState.index].id;if(!mathState.core.visitedConceptIds.includes(id))mathState.core.visitedConceptIds.push(id);mathState.phase='core-check';mathState.selectedAnswer=null;persist();renderMathScreen();}else if(action==='restart'){restartCompletedLearning();}else if(action==='complete'){const completedAt=new Date().toISOString();if(mathState.relearning){mathState.relearningHistory.push(completionSnapshot(mathState,completedAt));mathState.relearning=false;}mathState.completed=true;mathState.completedAt=mathState.completedAt||completedAt;persist();renderMathScreen();}}
 
   async function loadServer(openMutation,sequence){try{const response=await fetch(API_URL+'?action=getMathConceptProgress&name='+encodeURIComponent(student.name)+'&unitId='+encodeURIComponent(unit.id),{cache:'no-store'}),payload=await response.json();if(sequence!==loadSequence||!payload?.ok)return;const server=payload.data,serverRevision=Number(server?.syncRevision)||0;if(sessionMutation!==openMutation){mathState.lastServerRevision=Math.max(mathState.lastServerRevision,serverRevision);if(mathState.syncRevision<=serverRevision){mathState.syncRevision=serverRevision+1;mathState.pendingSync=true;queueSave();}return;}const local=mathState,serverState=normalizeProgress(server);const serverIsV2=server?.unitId===unit.id&&Number(server?.contentVersion||1)===Number(unit.contentVersion);if(serverIsV2&&(serverState.syncRevision>local.syncRevision||(serverState.syncRevision===local.syncRevision&&String(serverState.updatedAt||'')>String(local.updatedAt||''))))mathState=serverState;else{mathState.lastServerRevision=Math.max(mathState.lastServerRevision,serverRevision);mathState.syncRevision=Math.max(mathState.syncRevision,serverRevision);}if(!isLearningWriteBlocked())localStorage.setItem(storageKey(),JSON.stringify(mathState));renderMathScreen();}catch(error){console.warn('수학 v2 서버 조회 실패:',error);}}
 
   async function open(requestedUnitId){student=STUDENTS.find(item=>item.name===playerName);if(!student)return;const content=await loadMathConceptContent();const gradeConfig=content.grades?.[student.grade];const unitId=requestedUnitId||gradeConfig?.activeUnit||student.mathUnitId;unit=content.units[unitId];if(!unit||unit.grade!==student.grade){showToast2('⏳ 이 학년 수학개념학습은 준비 중이에요.');return;}screen=document.getElementById('math-concept-screen');root=document.getElementById('math-concept-root');if(!bound){screen.addEventListener('click',handleClick);bound=true;}mathState=normalizeProgress(readLocalWithMigration());sessionMutation=0;const sequence=++loadSequence;htShowOnlyScreen('math-concept-screen');renderMathScreen();loadServer(sessionMutation,sequence);}
   function close(){loadSequence++;mathState=null;unit=null;student=null;goHome();}
-  window.MathFlowV2={open,close,_test:{initialState:()=>initialState(),normalizeProgress,render:renderMathScreen,getState:()=>clone(mathState),setState:value=>{mathState=normalizeProgress(value);},submit,handleClick,recordWrongAnswer}};
+  window.MathFlowV2={open,close,_test:{initialState:()=>initialState(),normalizeProgress,render:renderMathScreen,getState:()=>clone(mathState),setState:value=>{mathState=normalizeProgress(value);},submit,handleClick,recordWrongAnswer,restartCompletedLearning}};
 })();

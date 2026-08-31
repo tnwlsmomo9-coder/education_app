@@ -3989,7 +3989,7 @@ function updateProgressColors(){
 // math-content.js에 새 유닛을 추가할 때마다 여기도 함께 갱신해야 진행률 집계에 포함된다.
 // (math-content.js는 openMathConceptLearning() 시점에 지연 로드되므로, 로그인 직후처럼
 //  아직 로드되지 않은 시점에도 동기적으로 판단할 수 있도록 고정 목록으로 관리한다.)
-const MATH_CONTENT_READY_UNITS=['linear-equation','geometry-properties','trigonometric-ratios'];
+const MATH_CONTENT_READY_UNITS=['linear-equation','geometry-properties','trigonometric-ratios','coordinate-geometry'];
 const mathConceptProgressOverviewCache={};
 
 function getMathGradeConfig_(student,content=window.MATH_CONTENT||window.MATH_CONCEPT_CONTENT){
@@ -4098,6 +4098,31 @@ function getMathConceptResumeTarget(name){
   return items.length>0?items[0].resumeTarget:null;
 }
 
+function findMathWrongConceptId_(unit,questionId){
+  if(!unit||!questionId)return '';
+  const prerequisite=(unit.prerequisites||[]).find(item=>item.question?.id===questionId||item.review?.question?.id===questionId);
+  if(prerequisite)return prerequisite.id;
+  const coreConcept=(unit.coreConcepts||[]).find(item=>item.checkQuestion?.id===questionId);
+  if(coreConcept)return coreConcept.id;
+  return (unit.finalQuestions||[]).find(item=>item.id===questionId)?.conceptId||'';
+}
+function getMathWrongConceptReview_(item){
+  const content=window.MATH_CONTENT||window.MATH_CONCEPT_CONTENT;
+  const unit=content?.units?.[item?.unitId];
+  if(!unit)return null;
+  const conceptId=item.conceptId||findMathWrongConceptId_(unit,item.questionId);
+  const coreConcept=(unit.coreConcepts||[]).find(concept=>concept.id===conceptId);
+  if(coreConcept){
+    const lesson=coreConcept.lesson||{};
+    return {conceptId,title:coreConcept.title,summary:lesson.summary||'',keyPoint:lesson.keyPoint||'',example:lesson.example||'',diagram:lesson.diagram||''};
+  }
+  const prerequisite=(unit.prerequisites||[]).find(concept=>concept.id===conceptId);
+  if(prerequisite){
+    const review=prerequisite.review||{};
+    return {conceptId,title:prerequisite.title,summary:review.summary||prerequisite.description||'',keyPoint:'',example:review.example||'',diagram:review.diagram||review.question?.diagram||prerequisite.question?.diagram||''};
+  }
+  return null;
+}
 function getMathWrongPracticeItems_(name){
   const student=STUDENTS.find(s=>s.name===name),content=window.MATH_CONTENT||window.MATH_CONCEPT_CONTENT;
   if(!student||!content)return [];
@@ -4106,7 +4131,10 @@ function getMathWrongPracticeItems_(name){
     const progress=pickNewerMathConceptProgress_(readMathConceptProgressWithMigration_(name,unitId),mathConceptProgressOverviewCache[mathConceptCacheKey_(name,unitId)]);
     if(!progress||progress.studentKey!==name||progress.unitId!==unitId)return;
     Object.values(progress.wrongPractice?.items||{}).forEach(item=>{
-      if(item&&item.resolved!==true&&item.unitId===unitId)items.push({...item,unitTitle:content.units?.[unitId]?.title||unitId});
+      if(item&&item.resolved!==true&&item.unitId===unitId){
+        const unit=content.units?.[unitId];
+        items.push({...item,conceptId:item.conceptId||findMathWrongConceptId_(unit,item.questionId),unitTitle:unit?.title||unitId});
+      }
     });
   });
   return items.sort((a,b)=>String(a.wrongAt||'').localeCompare(String(b.wrongAt||'')));
@@ -4157,7 +4185,7 @@ async function renderMathLearningCards_(){
   }
   const title=document.getElementById('math-active-unit-title'),sub=document.getElementById('math-active-unit-sub');
   if(title)title.textContent=activeUnit?activeUnit.title:'수학개념학습';
-  if(sub)sub.textContent=activeUnit?((activeUnit.gradeLabel||'')+' · 선수개념부터 차근차근 이해하기'):'콘텐츠 준비 중';
+  if(sub)sub.textContent=activeUnit?((activeUnit.gradeLabel||'')+' · '+(activeProgress.completed?'다시 학습하기':'선수개념부터 차근차근 이해하기')):'콘텐츠 준비 중';
   const wrongSub=document.getElementById('math-wrong-practice-sub');
   const wrongCount=getMathWrongPracticeItems_(playerName).length;
   if(wrongSub)wrongSub.textContent=wrongCount?`${wrongCount}문제 남음`:'등록된 오답이 없어요';
@@ -4171,19 +4199,20 @@ async function renderMathLearningCards_(){
     const completed=progress?.studentKey===playerName&&progress?.unitId===unitId&&progress.completed===true;
     return `<div class="unit-card${completed?' math-completed':''}" onclick="openMathConceptLearning('${unitId}')">
       <div class="unit-icon">📘</div><div class="unit-info"><div class="unit-title">${mathEscape(previousUnit.title)}</div>
-      <div class="unit-sub">${mathEscape(previousUnit.gradeLabel||'수학')} · ${completed?'완료':'이전 학습'}</div></div></div>`;
+      <div class="unit-sub">${mathEscape(previousUnit.gradeLabel||'수학')} · ${completed?'다시 학습하기':'이전 학습'}</div></div></div>`;
   }).join('');
 }
 
 let mathWrongPracticeQueue=[];
 let mathWrongPracticeSelected=null;
 let mathWrongPracticeFeedback=null;
+let mathWrongPracticePhase='concept';
 
 async function openMathWrongPractice(){
   if(!playerName)return;
   await loadMathConceptProgressForName_(playerName);
   mathWrongPracticeQueue=getMathWrongPracticeItems_(playerName);
-  mathWrongPracticeSelected=null;mathWrongPracticeFeedback=null;
+  mathWrongPracticeSelected=null;mathWrongPracticeFeedback=null;mathWrongPracticePhase='concept';
   htShowOnlyScreen('math-concept-screen');
   renderMathWrongPractice_();
 }
@@ -4192,18 +4221,35 @@ function renderMathWrongPractice_(){
   const root=document.getElementById('math-concept-root'),step=document.getElementById('math-step-label');
   if(!root)return;
   mathWrongPracticeQueue=getMathWrongPracticeItems_(playerName);
-  if(step)step.textContent=mathWrongPracticeQueue.length?`오답연습 · ${mathWrongPracticeQueue.length}문제 남음`:'오답연습 완료';
+  if(step)step.textContent=mathWrongPracticeQueue.length?`${mathWrongPracticePhase==='concept'?'관련 개념 복습':'오답 문제 다시 풀기'} · ${mathWrongPracticeQueue.length}문제 남음`:'오답연습 완료';
   if(!mathWrongPracticeQueue.length){
     root.innerHTML='<section class="math-card"><div class="math-kicker">수학 오답연습</div><h2>모든 오답을 해결했어요!</h2><div class="math-actions"><button type="button" class="math-primary" onclick="closeMathConceptLearning()">학습 홈으로</button></div></section>';
     renderIncompleteUnitsSection();renderMathLearningCards_();
     return;
   }
   const item=mathWrongPracticeQueue[0];
+  if(mathWrongPracticePhase==='concept'){
+    const review=getMathWrongConceptReview_(item);
+    if(review){
+      root.innerHTML=`<section class="math-card"><div class="math-kicker">${mathEscape(item.unitTitle)} · 관련 개념 복습</div><h2>${mathEscape(review.title)}</h2>
+        ${review.summary?`<p>${mathEscape(review.summary)}</p>`:''}${review.keyPoint?`<p><strong>${mathEscape(review.keyPoint)}</strong></p>`:''}
+        ${review.diagram?`<div class="math-diagram">${review.diagram}</div>`:''}${review.example?`<div class="math-equation">${mathEscape(review.example)}</div>`:''}
+        <div class="math-actions"><button type="button" class="math-primary" onclick="startMathWrongPracticeQuestion()">오답 문제 다시 풀기 →</button></div></section>`;
+      return;
+    }
+    mathWrongPracticePhase='question';
+    if(step)step.textContent=`오답 문제 다시 풀기 · ${mathWrongPracticeQueue.length}문제 남음`;
+  }
   const choices=(item.choices||[]).map((choice,index)=>`<button type="button" class="math-choice${mathWrongPracticeSelected===choice?' selected':''}" onclick="selectMathWrongPracticeAnswer(${index})">${index+1}. ${mathEscape(choice)}</button>`).join('');
   const feedback=mathWrongPracticeFeedback?`<div class="math-feedback ${mathWrongPracticeFeedback.correct?'ok':'bad'}">${mathWrongPracticeFeedback.correct?'✓ 정답이에요!':'△ 다시 풀어보세요.'}${mathWrongPracticeFeedback.correct||!item.explanation?'':`<br>${mathEscape(item.explanation)}`}</div>`:'';
   root.innerHTML=`<section class="math-card"><div class="math-kicker">${mathEscape(item.unitTitle)} · 오답 다시 풀기</div><h2>${mathEscape(item.question)}</h2>
     ${item.diagram?`<div class="math-diagram">${item.diagram}</div>`:''}<div class="math-options">${choices}</div>${feedback}
     <div class="math-actions"><button type="button" class="math-primary" onclick="submitMathWrongPracticeAnswer()"${mathWrongPracticeSelected===null?' disabled aria-disabled="true"':''}>답 제출하기</button></div></section>`;
+}
+
+function startMathWrongPracticeQuestion(){
+  mathWrongPracticePhase='question';mathWrongPracticeSelected=null;mathWrongPracticeFeedback=null;
+  renderMathWrongPractice_();
 }
 
 function selectMathWrongPracticeAnswer(index){
@@ -4220,7 +4266,7 @@ async function submitMathWrongPracticeAnswer(){
   mathWrongPracticeFeedback={correct};
   if(!correct){renderMathWrongPractice_();return;}
   await resolveMathWrongPracticeItem_(playerName,item.unitId,item.questionId,mathWrongPracticeSelected);
-  mathWrongPracticeSelected=null;mathWrongPracticeFeedback=null;
+  mathWrongPracticeSelected=null;mathWrongPracticeFeedback=null;mathWrongPracticePhase='concept';
   renderMathWrongPractice_();
 }
 
@@ -12425,7 +12471,7 @@ function loadMathConceptContent(){
   if(mathContentLoadPromise)return mathContentLoadPromise;
   mathContentLoadPromise=new Promise((resolve,reject)=>{
     const script=document.createElement('script');
-    script.src='math-content.js?v=20260901-math-6';
+    script.src='math-content.js?v=20260901-math-7';
     script.onload=()=>{const content=window.MATH_CONTENT||window.MATH_CONCEPT_CONTENT;content?resolve(content):reject(new Error('수학 콘텐츠 형식 오류'));};
     script.onerror=()=>reject(new Error('수학 콘텐츠 네트워크 오류'));
     document.head.appendChild(script);
