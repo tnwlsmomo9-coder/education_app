@@ -3963,6 +3963,24 @@ function updateProgressColors(){
     if(easyCard) easyCard.classList.toggle('done', easyDoneCur);
     if(hardCard) hardCard.classList.toggle('done', hardDoneCur);
   }
+
+  updateMathUnitCardStatus();
+}
+
+function updateMathUnitCardStatus(){
+  const card=document.getElementById('math-unit-card');
+  if(!card)return;
+  let completed=false,incomplete=false;
+  if(playerName){
+    const student=STUDENTS.find(s=>s.name===playerName);
+    let raw=null;
+    try{raw=JSON.parse(localStorage.getItem('mathConceptProgress_v1:'+playerName)||'null');}catch(e){}
+    const valid=!!(raw&&student&&raw.studentKey===playerName&&raw.unitId===student.mathUnitId&&Number(raw.contentVersion)===2);
+    completed=valid&&raw.completed===true;
+    incomplete=valid&&!completed;
+  }
+  card.classList.toggle('math-completed',completed);
+  card.classList.toggle('math-incomplete',incomplete);
 }
 
 // ── 강의 보기 (문제와 별개, 유튜브 링크 전용) ──
@@ -12305,7 +12323,7 @@ async function openMathConceptLearning(){
   if(!window.MathFlowV2){showToast2('⚠️ 수학 화면을 불러오지 못했어요.');return;}
   return window.MathFlowV2.open();
 }
-function closeMathConceptLearning(){return window.MathFlowV2?.close();}
+function closeMathConceptLearning(){const r=window.MathFlowV2?.close();updateProgressColors();return r;}
 function renderMathPhase(){
   if(!mathProgress||!mathActiveUnit)return;
   if(mathEntryIntro){renderMathIntro();window.scrollTo({top:0,behavior:'auto'});return;}
