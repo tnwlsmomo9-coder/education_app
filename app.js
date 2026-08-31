@@ -12288,8 +12288,9 @@ function renderMathPhase(){
 function renderMathIntro(){
   setMathPhaseLabel('오늘 배울 단원');
   const started=mathProgress.syncRevision>0||mathProgress.resume.phase!=='intro';
-  const actions=mathProgress.completed?`<button class="math-primary" onclick="showSavedMathResult()">결과 보기</button><button class="math-secondary" onclick="restartMathLearning()">다시 학습하기</button>`:`<button class="math-primary" onclick="startOrResumeMathLearning()">${started?'이어서 학습하기 →':'이전 개념 확인하기 →'}</button>`;
+  const actions=mathProgress.completed?`<button type="button" class="math-primary" onclick="showSavedMathResult()">결과 보기</button><button type="button" class="math-secondary" onclick="restartMathLearning()">다시 학습하기</button>`:`<button type="button" id="math-start-learning-button" class="math-primary">${started?'이어서 학습하기 →':'이전 개념 확인하기 →'}</button>`;
   renderMathCard(`${mathActiveUnit.gradeLabel} 수학`,mathActiveUnit.title,`<p>${mathEscape(mathActiveUnit.intro)}</p><div class="math-actions">${actions}</div>`);
+  document.getElementById('math-start-learning-button')?.addEventListener('click',startOrResumeMathLearning,{once:true});
 }
 function startOrResumeMathLearning(){
   mathEntryIntro=false;

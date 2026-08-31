@@ -5,7 +5,7 @@
 <!-- app.js/learning-content.js는 아래에서 rAF 이후 동적으로 <script> 삽입되어 실행되지만,
      다운로드 자체는 여기서 미리 시작해두면 두 파일이 순차가 아니라 병렬로 받아져 초기 로딩이 빨라집니다.
      버전 쿼리(?v=...)는 실제 <script src=...> 값과 반드시 동일하게 유지해야 브라우저가 프리로드를 재사용합니다. -->
-<link rel="preload" as="script" href="app.js?v=20260831-math-state-1">
+<link rel="preload" as="script" href="app.js?v=20260831-math-start-1">
 <link rel="preload" as="script" href="learning-content.js?v=20260825-content-19">
 <script>
 // ===== ?perf=1 전용 임시 진단 모듈 =====
@@ -1786,13 +1786,13 @@ body:has(#student-select-view[style*="display: none"]){
 }
 
 /* 수학개념학습 — 기존 카드/버튼 토큰을 그대로 사용하는 모바일 우선 단일 화면 */
-#math-concept-screen{display:none;width:100%;min-width:0;max-width:720px;margin:0 auto;text-align:left;overflow:visible}
+#math-concept-screen{position:relative;z-index:1;display:none;width:100%;min-width:0;max-width:720px;margin:0 auto;text-align:left;overflow:visible;pointer-events:auto}
 body:has(#math-concept-screen[style*="display: block"]){align-items:flex-start}
 .math-shell{width:100%;min-width:0;min-height:100%;padding-bottom:max(88px,calc(40px + env(safe-area-inset-bottom)))}
 .math-topbar{display:flex;align-items:center;gap:10px;margin-bottom:14px}
 .math-back{border:0;background:var(--neutral-surface);border-radius:var(--radius-md);padding:10px 12px;font:inherit;font-weight:800;cursor:pointer;box-shadow:var(--shadow-sm)}
 .math-step{margin-left:auto;color:var(--neutral-text-secondary);font-size:12px;font-weight:800}
-.math-card{width:100%;min-width:0;background:var(--neutral-surface);border:1px solid var(--neutral-border);border-radius:var(--radius-lg);padding:20px;box-shadow:var(--shadow-md);margin-bottom:14px;overflow:visible}
+.math-card{position:relative;z-index:1;width:100%;min-width:0;background:var(--neutral-surface);border:1px solid var(--neutral-border);border-radius:var(--radius-lg);padding:20px;box-shadow:var(--shadow-md);margin-bottom:14px;overflow:visible;pointer-events:auto}
 .math-kicker{color:var(--subject-math-text);font-size:12px;font-weight:900;margin-bottom:7px}
 .math-card h2,.math-card h3{color:var(--neutral-text);margin:0 0 12px;word-break:keep-all}
 .math-card p{color:var(--neutral-text-secondary);line-height:1.75;overflow-wrap:anywhere;word-break:keep-all}
@@ -4483,7 +4483,7 @@ h1,h2,h3,.title-label{
 
 <script>
 (()=>{
-  const APP_SCRIPT_URL='app.js?v=20260831-math-state-1';
+  const APP_SCRIPT_URL='app.js?v=20260831-math-start-1';
   window.__APP_SCRIPT_URL=APP_SCRIPT_URL; // 디버그 로그(app.js __perfMark)가 실제 로드 버전을 하드코딩 없이 참조하도록 노출
   window.__appMainReady=false;
   window.__pendingShellStudent='';
