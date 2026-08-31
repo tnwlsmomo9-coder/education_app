@@ -1,4 +1,4 @@
-const CACHE_NAME = 'samguk-culture-quiz-v47-math1';
+const CACHE_NAME = 'samguk-culture-quiz-v48-math-layout';
 const ASSETS = [
   './index.html',
   './app.js?v=20260831-math-1',
