@@ -3623,29 +3623,6 @@ h1,h2,h3,.title-label{
       </div>
     </div>
 
-    <section class="subject-section history-subject-section" aria-labelledby="history-subject-title">
-      <div class="subject-section-header" onclick="toggleSubjectSection(this)">
-        <div class="subject-section-icon">🏛️</div>
-        <div>
-          <h2 id="history-subject-title">역사</h2>
-          <p>단원 퀴즈와 역사 학습 콘텐츠</p>
-        </div>
-      </div>
-
-      <div class="subject-section-body">
-        <div class="section-label subject-inner-label" style="display:flex;justify-content:flex-start;align-items:center;gap:8px;cursor:pointer" onclick="toggleSectionFold('unit-grid','unit-section-arrow')">
-          <span>🏺 역사단원퀴즈</span><span id="unit-section-arrow" data-open="true"></span>
-        </div>
-        <div class="unit-grid" id="unit-grid"></div>
-
-        <div class="section-label subject-inner-label" style="display:flex;justify-content:flex-start;align-items:center;gap:8px;cursor:pointer" onclick="toggleSectionFold('timeline-game-section','study-section-arrow')">
-          <span>📜 역사학습콘텐츠</span><span id="study-section-arrow" data-open="true"></span>
-        </div>
-        <div class="unit-grid" id="timeline-game-section"></div>
-      </div>
-    </section>
-
-
     <section class="subject-section math-subject-section" aria-labelledby="math-subject-title">
       <div class="subject-section-header" onclick="toggleSubjectSection(this)">
         <div class="subject-section-icon">➗</div>
@@ -3688,6 +3665,28 @@ h1,h2,h3,.title-label{
             </div>
           </div>
         </div>
+      </div>
+    </section>
+
+    <section class="subject-section history-subject-section" aria-labelledby="history-subject-title">
+      <div class="subject-section-header" onclick="toggleSubjectSection(this)">
+        <div class="subject-section-icon">🏛️</div>
+        <div>
+          <h2 id="history-subject-title">역사</h2>
+          <p>단원 퀴즈와 역사 학습 콘텐츠</p>
+        </div>
+      </div>
+
+      <div class="subject-section-body">
+        <div class="section-label subject-inner-label" style="display:flex;justify-content:flex-start;align-items:center;gap:8px;cursor:pointer" onclick="toggleSectionFold('unit-grid','unit-section-arrow')">
+          <span>🏺 역사단원퀴즈</span><span id="unit-section-arrow" data-open="true"></span>
+        </div>
+        <div class="unit-grid" id="unit-grid"></div>
+
+        <div class="section-label subject-inner-label" style="display:flex;justify-content:flex-start;align-items:center;gap:8px;cursor:pointer" onclick="toggleSectionFold('timeline-game-section','study-section-arrow')">
+          <span>📜 역사학습콘텐츠</span><span id="study-section-arrow" data-open="true"></span>
+        </div>
+        <div class="unit-grid" id="timeline-game-section"></div>
       </div>
     </section>
 
