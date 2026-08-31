@@ -3376,6 +3376,12 @@ const LEARNING_MODULES={
     calculateProgress:calculateHistorySummaryOverallProgress,
     getIncompleteItems:getHistorySummaryIncompleteItems,
     getResumeTarget:getHistorySummaryResumeTarget
+  },
+  mathConcept:{
+    key:'mathConcept', title:'수학개념학습', includeInOverall:true,
+    calculateProgress:calculateMathConceptProgress,
+    getIncompleteItems:getMathConceptIncompleteItems,
+    getResumeTarget:getMathConceptResumeTarget
   }
 };
 
@@ -3907,6 +3913,8 @@ function openLearningResumeTarget(target){
   }else if(target.type==='kingOrder'){
     showKingOrder();
     if(target.eraId)openKingOrderEra(target.eraId);
+  }else if(target.type==='mathConcept'){
+    openMathConceptLearning();
   }
 }
 
@@ -3967,17 +3975,91 @@ function updateProgressColors(){
   updateMathUnitCardStatus();
 }
 
+// 수학개념학습 콘텐츠(math-content.js)가 실제로 준비된 mathUnitId 목록.
+// math-content.js에 새 유닛을 추가할 때마다 여기도 함께 갱신해야 진행률 집계에 포함된다.
+// (math-content.js는 openMathConceptLearning() 시점에 지연 로드되므로, 로그인 직후처럼
+//  아직 로드되지 않은 시점에도 동기적으로 판단할 수 있도록 고정 목록으로 관리한다.)
+const MATH_CONTENT_READY_UNITS=['linear-equation','geometry-properties','trigonometric-ratios'];
+const mathConceptProgressOverviewCache={};
+
+function pickNewerMathConceptProgress_(local,cached){
+  if(!local)return cached||null;
+  if(!cached)return local;
+  const localRevision=Number(local.syncRevision||0),cachedRevision=Number(cached.syncRevision||0);
+  if(cachedRevision!==localRevision)return cachedRevision>localRevision?cached:local;
+  return String(cached.updatedAt||'')>String(local.updatedAt||'')?cached:local;
+}
+
+// 수학개념학습 진행률 — 서버에서 복원해 둔 mathConceptProgress_v1 localStorage 기록으로 동기 계산.
+// math-flow-v2.js의 normalizeProgress()가 "신선한 state"로 인정하는 기준(studentKey/unitId/contentVersion 일치)과
+// 동일한 기준으로 "시작함"을 판정한다. 콘텐츠가 아직 없는 학생(mathUnitId가 위 목록 밖)은 집계에서 제외.
+function calculateMathConceptProgress(name){
+  const student=STUDENTS.find(s=>s.name===name);
+  if(!student || MATH_CONTENT_READY_UNITS.indexOf(student.mathUnitId)===-1){
+    return {percent:0,completed:true,status:'콘텐츠 준비 중',incompleteCount:0,resumeTarget:null,completedAmount:0,totalAmount:0,includeInOverall:false};
+  }
+  let raw=null;
+  try{raw=JSON.parse(localStorage.getItem('mathConceptProgress_v1:'+name)||'null');}catch(e){}
+  raw=pickNewerMathConceptProgress_(raw,mathConceptProgressOverviewCache[name]);
+  const valid=!!(raw&&raw.studentKey===name&&raw.unitId===student.mathUnitId&&Number(raw.contentVersion)===2);
+  const completed=valid&&raw.completed===true;
+  // 전체 진행률 완료분에는 최종 결과에서 '학습 완료하기'까지 누른 경우만 반영한다.
+  const percent=completed?100:0;
+  return {
+    percent, completed,
+    status: completed?'학습 완료':(valid?'미완료 학습':'시작 전'),
+    incompleteCount: completed?0:1,
+    resumeTarget: completed?null:{type:'mathConcept'},
+    completedAmount:percent, totalAmount:100,
+    includeInOverall:true
+  };
+}
+
+// 전체 진행률 화면에서도 새 기기/새로고침 뒤 서버 기록을 먼저 복원할 수 있게 하는 읽기 전용 동기화.
+// 엔진과 같은 revision/updatedAt 우선순위를 사용하며, 학생·유닛·콘텐츠 버전이 다른 기록은 섞지 않는다.
+async function loadMathConceptProgressForName_(name){
+  const student=STUDENTS.find(s=>s.name===name);
+  if(!student||MATH_CONTENT_READY_UNITS.indexOf(student.mathUnitId)===-1)return;
+  const result=await apiGetMathConceptProgress(name);
+  const server=result?.data;
+  if(!result?.ok||!server||server.studentKey!==name||server.unitId!==student.mathUnitId||Number(server.contentVersion)!==2)return;
+  mathConceptProgressOverviewCache[name]=server;
+  let local=null;
+  try{local=JSON.parse(localStorage.getItem('mathConceptProgress_v1:'+name)||'null');}catch(e){}
+  const localValid=!!(local&&local.studentKey===name&&local.unitId===student.mathUnitId&&Number(local.contentVersion)===2);
+  const serverNewer=!localValid||Number(server.syncRevision||0)>Number(local.syncRevision||0)||(
+    Number(server.syncRevision||0)===Number(local.syncRevision||0)&&String(server.updatedAt||'')>String(local.updatedAt||'')
+  );
+  if(serverNewer&&!isLearningWriteBlocked()){
+    try{localStorage.setItem('mathConceptProgress_v1:'+name,JSON.stringify(server));}catch(error){console.warn('수학 진행 서버 복원 실패:',error);}
+  }
+}
+function getMathConceptIncompleteItems(name){
+  const progress=calculateMathConceptProgress(name);
+  if(progress.includeInOverall===false||progress.completed)return [];
+  return [{
+    moduleKey:'mathConcept', itemKey:'mathConcept',
+    title:'수학개념학습', subtitle:'수학',
+    percent:progress.percent, status:progress.status,
+    resumeTarget:progress.resumeTarget,
+    sortOrder:1003
+  }];
+}
+function getMathConceptResumeTarget(name){
+  const items=getMathConceptIncompleteItems(name);
+  return items.length>0?items[0].resumeTarget:null;
+}
+
 function updateMathUnitCardStatus(){
   const card=document.getElementById('math-unit-card');
   if(!card)return;
   let completed=false,incomplete=false;
   if(playerName){
-    const student=STUDENTS.find(s=>s.name===playerName);
-    let raw=null;
-    try{raw=JSON.parse(localStorage.getItem('mathConceptProgress_v1:'+playerName)||'null');}catch(e){}
-    const valid=!!(raw&&student&&raw.studentKey===playerName&&raw.unitId===student.mathUnitId&&Number(raw.contentVersion)===2);
-    completed=valid&&raw.completed===true;
-    incomplete=valid&&!completed;
+    const progress=calculateMathConceptProgress(playerName);
+    if(progress.includeInOverall!==false){
+      completed=!!progress.completed;
+      incomplete=progress.status==='미완료 학습';
+    }
   }
   card.classList.toggle('math-completed',completed);
   card.classList.toggle('math-incomplete',incomplete);
@@ -4796,7 +4878,8 @@ function loadStudentDataIfStale(name, forceRefresh=false){
     loadScore(),
     loadMapStudyProgress(requestedName),
     loadStudyPlannerData(requestedName),
-    loadKingOrderProgress(requestedName)
+    loadKingOrderProgress(requestedName),
+    loadMathConceptProgressForName_(requestedName)
   ]).then(()=>{
     studentDataLoadedAt[requestedName]=Date.now();
     // 응답이 늦게 와서 그 사이 다른 학생으로 바뀌었다면, 지금 화면은 덮어쓰지 않음
@@ -9206,7 +9289,8 @@ async function openParentStudentLearningView(name,cardEl){
     loadScore(),
     apiList(),
     apiListStudyTime(),
-    loadKingOrderProgress(name,{syncLocal:false})
+    loadKingOrderProgress(name,{syncLocal:false}),
+    loadMathConceptProgressForName_(name)
   ]);
 
   if(parentSelectedName!==name)return;
@@ -9268,7 +9352,8 @@ async function renderParentResult(name,cardEl){
     loadScore(),
     apiList(),
     apiListStudyTime(),
-    loadKingOrderProgress(name,{syncLocal:false})
+    loadKingOrderProgress(name,{syncLocal:false}),
+    loadMathConceptProgressForName_(name)
   ]);
   allEntriesCache=entries;
   studyTimeServerCache=studyTimeMap;
@@ -9570,7 +9655,8 @@ async function showTeacherNoAuth(){
     apiList(),
     apiListAccessLog(),
     apiListStudyTime(),
-    apiListKingOrderProgress()
+    apiListKingOrderProgress(),
+    Promise.all(STUDENTS.map(student=>loadMathConceptProgressForName_(student.name)))
   ]);
 
   if(myToken!==teacherRenderToken) return; // 그 사이 다시 열렸다면 이 응답은 버림
