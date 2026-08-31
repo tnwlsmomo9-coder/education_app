@@ -7,8 +7,8 @@
      버전 쿼리(?v=...)는 실제 <script src=...> 값과 반드시 동일하게 유지해야 브라우저가 프리로드를 재사용합니다. -->
 <link rel="preload" as="script" href="app.js?v=20260831-math-pre-submit-1">
 <link rel="preload" as="script" href="learning-content.js?v=20260825-content-19">
-<link rel="preload" as="script" href="math-flow-v2.js?v=20260831-flow-1">
-<script src="math-flow-v2.js?v=20260831-flow-1"></script>
+<link rel="preload" as="script" href="math-flow-v2.js?v=20260901-flow-2">
+<script src="math-flow-v2.js?v=20260901-flow-2"></script>
 <script>
 // ===== ?perf=1 전용 임시 진단 모듈 =====
 // 일반 접속 시: 아래 IIFE는 조건검사 1줄만 실행하고 즉시 종료(추가 렌더링·fetch래핑·오버헤드 없음)
@@ -1812,7 +1812,16 @@ body:has(#math-concept-screen[style*="display: block"]){align-items:flex-start}
 .math-status-list{display:grid;gap:8px;margin:12px 0}
 .math-status-row{display:flex;gap:9px;align-items:flex-start;padding:10px;border-radius:var(--radius-md);background:var(--neutral-bg)}
 .math-prereq-note{border-left:4px solid #d29b28;padding:10px 12px;background:#fff8df;border-radius:8px;margin:12px 0;color:#72530c;font-weight:800}
-@media(max-width:480px){#math-concept-screen{padding:8px 2px 0}.math-shell{padding-bottom:max(96px,calc(48px + env(safe-area-inset-bottom)))}.math-topbar{align-items:flex-start;flex-wrap:wrap}.math-step{max-width:55%;padding-top:9px;text-align:right;white-space:normal}.math-card{padding:17px 14px}.math-card h2,.math-card h3{font-size:20px;line-height:1.4}.math-equation{font-size:17px;line-height:1.55}.math-primary,.math-secondary,.math-choice{height:auto}}
+.math-diagram{margin:12px 0;display:flex;justify-content:center}
+.math-diagram svg{width:100%;max-width:300px;height:auto;display:block}
+.math-diagram .d-shape{stroke:var(--neutral-text);stroke-width:2;fill:none;stroke-linejoin:round}
+.math-diagram .d-line{stroke:var(--neutral-text);stroke-width:2}
+.math-diagram .d-line-soft{stroke:var(--neutral-border);stroke-width:1.5}
+.math-diagram .d-dash{stroke-dasharray:4 3}
+.math-diagram .d-arc{stroke:var(--subject-math-text);stroke-width:2;fill:none}
+.math-diagram .d-label{fill:var(--neutral-text);font-size:15px;font-weight:800}
+.math-diagram .d-highlight{fill:var(--subject-math-text);font-size:16px;font-weight:900}
+@media(max-width:480px){#math-concept-screen{padding:8px 2px 0}.math-shell{padding-bottom:max(96px,calc(48px + env(safe-area-inset-bottom)))}.math-topbar{align-items:flex-start;flex-wrap:wrap}.math-step{max-width:55%;padding-top:9px;text-align:right;white-space:normal}.math-card{padding:17px 14px}.math-card h2,.math-card h3{font-size:20px;line-height:1.4}.math-equation{font-size:17px;line-height:1.55}.math-primary,.math-secondary,.math-choice{height:auto}.math-diagram svg{max-width:240px}.math-diagram .d-label{font-size:13px}.math-diagram .d-highlight{font-size:14px}}
 
 
 /* ==================================================

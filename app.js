@@ -12128,7 +12128,7 @@ function loadMathConceptContent(){
   if(mathContentLoadPromise)return mathContentLoadPromise;
   mathContentLoadPromise=new Promise((resolve,reject)=>{
     const script=document.createElement('script');
-    script.src='math-content.js?v=20260831-math-2';
+    script.src='math-content.js?v=20260901-math-3';
     script.onload=()=>{const content=window.MATH_CONTENT||window.MATH_CONCEPT_CONTENT;content?resolve(content):reject(new Error('수학 콘텐츠 형식 오류'));};
     script.onerror=()=>reject(new Error('수학 콘텐츠 네트워크 오류'));
     document.head.appendChild(script);
