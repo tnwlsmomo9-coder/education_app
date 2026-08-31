@@ -5,7 +5,7 @@
 <!-- app.js/learning-content.js는 아래에서 rAF 이후 동적으로 <script> 삽입되어 실행되지만,
      다운로드 자체는 여기서 미리 시작해두면 두 파일이 순차가 아니라 병렬로 받아져 초기 로딩이 빨라집니다.
      버전 쿼리(?v=...)는 실제 <script src=...> 값과 반드시 동일하게 유지해야 브라우저가 프리로드를 재사용합니다. -->
-<link rel="preload" as="script" href="app.js?v=20260828-1">
+<link rel="preload" as="script" href="app.js?v=20260831-math-1">
 <link rel="preload" as="script" href="learning-content.js?v=20260825-content-19">
 <script>
 // ===== ?perf=1 전용 임시 진단 모듈 =====
@@ -1784,6 +1784,32 @@ body:has(#student-select-view[style*="display: none"]){
     opacity:1!important;
   }
 }
+
+/* 수학개념학습 — 기존 카드/버튼 토큰을 그대로 사용하는 모바일 우선 단일 화면 */
+#math-concept-screen{display:none;text-align:left;max-width:720px;margin:0 auto}
+.math-shell{padding-bottom:28px}
+.math-topbar{display:flex;align-items:center;gap:10px;margin-bottom:14px}
+.math-back{border:0;background:var(--neutral-surface);border-radius:var(--radius-md);padding:10px 12px;font:inherit;font-weight:800;cursor:pointer;box-shadow:var(--shadow-sm)}
+.math-step{margin-left:auto;color:var(--neutral-text-secondary);font-size:12px;font-weight:800}
+.math-card{background:var(--neutral-surface);border:1px solid var(--neutral-border);border-radius:var(--radius-lg);padding:20px;box-shadow:var(--shadow-md);margin-bottom:14px}
+.math-kicker{color:var(--subject-math-text);font-size:12px;font-weight:900;margin-bottom:7px}
+.math-card h2,.math-card h3{color:var(--neutral-text);margin:0 0 12px;word-break:keep-all}
+.math-card p{color:var(--neutral-text-secondary);line-height:1.75;word-break:keep-all}
+.math-equation{overflow-x:auto;background:var(--subject-math-bg);color:var(--subject-math-text);border-radius:var(--radius-md);padding:12px;margin:9px 0;text-align:center;font-size:18px;font-weight:900;white-space:nowrap}
+.math-actions{display:flex;flex-direction:column;gap:9px;margin-top:16px}
+.math-primary,.math-secondary{width:100%;min-height:48px;border-radius:var(--radius-md);padding:12px 14px;font:inherit;font-weight:900;cursor:pointer}
+.math-primary{border:0;background:var(--student-accent,var(--ember));color:#fff}
+.math-secondary{border:1px solid var(--neutral-border);background:var(--neutral-surface);color:var(--neutral-text)}
+.math-choice{width:100%;min-height:48px;text-align:left;border:1.5px solid var(--neutral-border);background:#fff;border-radius:var(--radius-md);padding:12px;margin:6px 0;font:inherit;font-weight:800;cursor:pointer}
+.math-choice.selected{border-color:var(--student-accent,var(--ember));background:var(--student-accent-tint,#f4f0ff)}
+.math-answer{width:100%;min-height:48px;box-sizing:border-box;border:1.5px solid var(--neutral-border);border-radius:var(--radius-md);padding:12px;font:inherit;font-size:16px}
+.math-feedback{border-radius:var(--radius-md);padding:12px;margin-top:12px;font-weight:800;line-height:1.6}
+.math-feedback.ok{background:color-mix(in srgb,var(--neutral-correct) 14%,white);color:#1e7d4d}
+.math-feedback.bad{background:color-mix(in srgb,var(--neutral-wrong) 11%,white);color:#a33b43}
+.math-status-list{display:grid;gap:8px;margin:12px 0}
+.math-status-row{display:flex;gap:9px;align-items:flex-start;padding:10px;border-radius:var(--radius-md);background:var(--neutral-bg)}
+.math-prereq-note{border-left:4px solid #d29b28;padding:10px 12px;background:#fff8df;border-radius:8px;margin:12px 0;color:#72530c;font-weight:800}
+@media(max-width:480px){.math-card{padding:17px 14px}.math-equation{font-size:17px}}
 
 
 /* ==================================================
@@ -3616,13 +3642,13 @@ h1,h2,h3,.title-label{
       </div>
 
       <div class="subject-section-body">
-        <div class="section-label">📘 수학개념학습 <span style="margin-left:auto;font-size:11px;color:#888">준비중</span></div>
+        <div class="section-label">📘 수학개념학습</div>
         <div class="unit-grid">
-          <div class="unit-card" onclick="alert('수학개념학습은 준비 중입니다.')">
+          <div class="unit-card" onclick="openMathConceptLearning()">
             <div class="unit-icon">📘</div>
             <div class="unit-info">
               <div class="unit-title">수학개념학습</div>
-              <div class="unit-sub">중1 · 중2 · 중3 · 고1 (예정)</div>
+              <div class="unit-sub">선수개념부터 차근차근 이해하기</div>
             </div>
           </div>
         </div>
@@ -3671,6 +3697,16 @@ h1,h2,h3,.title-label{
     <button type="button" class="teacher-btn change-student-btn" onclick="changeStudentFromLearningHome()">↩ 다른 학생으로 로그인</button>
     </div><!-- /learning-home-view -->
   </div><!-- /start-screen -->
+
+  <div id="math-concept-screen" aria-live="polite">
+    <div class="math-shell">
+      <div class="math-topbar">
+        <button type="button" class="math-back" onclick="closeMathConceptLearning()">← 학습 홈</button>
+        <span class="math-step" id="math-step-label"></span>
+      </div>
+      <div id="math-concept-root"></div>
+    </div>
+  </div>
 
   <!-- 학습 요약 노트 화면 -->
   <div id="summary-screen">
@@ -4446,7 +4482,7 @@ h1,h2,h3,.title-label{
 
 <script>
 (()=>{
-  const APP_SCRIPT_URL='app.js?v=20260828-1';
+  const APP_SCRIPT_URL='app.js?v=20260831-math-1';
   window.__APP_SCRIPT_URL=APP_SCRIPT_URL; // 디버그 로그(app.js __perfMark)가 실제 로드 버전을 하드코딩 없이 참조하도록 노출
   window.__appMainReady=false;
   window.__pendingShellStudent='';

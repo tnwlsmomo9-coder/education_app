@@ -1739,10 +1739,10 @@ function renderAvatarHtml(avatarValue,size){
 }
 
 const STUDENTS=[
-  {name:'김주하',avatar:'⭐'},
-  {name:'전민건',avatar:'⭐'},
-  {name:'이하이',avatar:'⭐'},
-  {name:'최단비',avatar:'⭐'}
+  {name:'김주하',avatar:'⭐',grade:'middle2',mathUnitId:'geometry-properties'},
+  {name:'전민건',avatar:'⭐',grade:'middle3',mathUnitId:'trigonometric-ratios'},
+  {name:'이하이',avatar:'⭐',grade:'middle1',mathUnitId:'linear-equation'},
+  {name:'최단비',avatar:'⭐',grade:'high1',mathUnitId:'coordinate-geometry'}
 ];
 
 const ART={
@@ -2267,7 +2267,7 @@ async function saveMapStudyProgress(partId,correct,total){
 }
 
 function hideAllForMapStudy(){
-  ['start-screen','quiz-screen','result-screen','teacher-screen','parent-screen','timeline-game-screen','king-order-screen','ht-list-screen','ht-part-screen','summary-screen','lecture-screen','qbank-screen','map-study-learn-screen']
+  ['start-screen','quiz-screen','result-screen','teacher-screen','parent-screen','timeline-game-screen','king-order-screen','ht-list-screen','ht-part-screen','summary-screen','lecture-screen','qbank-screen','map-study-learn-screen','math-concept-screen']
     .forEach(id=>{const el=document.getElementById(id);if(el)el.style.display='none';});
 }
 
@@ -6504,7 +6504,7 @@ function htNormalize(s){
 function htShowOnlyScreen(screenId){
   const screenIds=['start-screen','quiz-screen','result-screen','teacher-screen','parent-screen',
     'timeline-game-screen','king-order-screen','ht-list-screen','ht-part-screen','history-summary-screen','summary-screen','lecture-screen','qbank-screen',
-    'map-study-list-screen','map-study-learn-screen','map-study-quiz-screen'];
+    'map-study-list-screen','map-study-learn-screen','map-study-quiz-screen','math-concept-screen'];
   screenIds.forEach(id=>{
     const el=document.getElementById(id);
     if(el) el.style.display=(id===screenId?'block':'none');
@@ -10410,7 +10410,7 @@ function goHome(){
   document.body.classList.remove('parent-unit-practice');
   parentChildViewActive=false;
   parentChildViewName='';
-  document.getElementById('parent-child-view-bar')?.remove();viewerModeActive=false;stopTimer();if(forcedReviewTimer){clearTimeout(forcedReviewTimer);forcedReviewTimer=null;}quizActiveFlag=false;document.getElementById('result-screen').style.display='none';document.getElementById('teacher-screen').style.display='none';document.getElementById('parent-screen').style.display='none';document.getElementById('timeline-game-screen').style.display='none';document.getElementById('king-order-screen').style.display='none';document.getElementById('ht-list-screen').style.display='none';document.getElementById('ht-part-screen').style.display='none';document.getElementById('summary-screen').style.display='none';document.getElementById('lecture-screen').style.display='none';document.getElementById('qbank-screen').style.display='none';document.getElementById('map-study-list-screen').style.display='none';document.getElementById('map-study-quiz-screen').style.display='none';document.getElementById('map-study-learn-screen').style.display='none';document.getElementById('start-screen').style.display='block';levelSectionVisible=false;const lw=document.getElementById('level-section-wrapper');if(lw)lw.style.display='none';renderStudentGrid({refreshData:true});updateSelectedNameBanner();if(playerName){showLearningHomeView();}else{showStudentSelectView();}}
+  document.getElementById('parent-child-view-bar')?.remove();viewerModeActive=false;stopTimer();if(forcedReviewTimer){clearTimeout(forcedReviewTimer);forcedReviewTimer=null;}quizActiveFlag=false;document.getElementById('result-screen').style.display='none';document.getElementById('teacher-screen').style.display='none';document.getElementById('parent-screen').style.display='none';document.getElementById('timeline-game-screen').style.display='none';document.getElementById('king-order-screen').style.display='none';document.getElementById('ht-list-screen').style.display='none';document.getElementById('ht-part-screen').style.display='none';document.getElementById('summary-screen').style.display='none';document.getElementById('lecture-screen').style.display='none';document.getElementById('qbank-screen').style.display='none';document.getElementById('map-study-list-screen').style.display='none';document.getElementById('map-study-quiz-screen').style.display='none';document.getElementById('map-study-learn-screen').style.display='none';document.getElementById('math-concept-screen').style.display='none';document.getElementById('start-screen').style.display='block';levelSectionVisible=false;const lw=document.getElementById('level-section-wrapper');if(lw)lw.style.display='none';renderStudentGrid({refreshData:true});updateSelectedNameBanner();if(playerName){showLearningHomeView();}else{showStudentSelectView();}}
 
 function showSummary(){
   document.getElementById('start-screen').style.display='none';
@@ -12108,6 +12108,268 @@ document.addEventListener('fullscreenchange',()=>{
 });
 
 
+// ══════════════════════════════════════════
+// 수학개념학습 — 중1 일차방정식 1차
+// ══════════════════════════════════════════
+const MATH_PROGRESS_STORAGE_PREFIX='mathConceptProgress_v1:';
+let mathContentLoadPromise=null;
+let mathActiveStudent='';
+let mathActiveUnit=null;
+let mathProgress=null;
+let mathSelectedAnswer='';
+let mathFeedback=null;
+let mathEntryIntro=false;
+let mathSaveSending=false;
+let mathPendingServerSnapshot=null;
+
+function loadMathConceptContent(){
+  if(window.MATH_CONCEPT_CONTENT)return Promise.resolve(window.MATH_CONCEPT_CONTENT);
+  if(mathContentLoadPromise)return mathContentLoadPromise;
+  mathContentLoadPromise=new Promise((resolve,reject)=>{
+    const script=document.createElement('script');
+    script.src='math-content.js?v=20260831-math-1';
+    script.onload=()=>window.MATH_CONCEPT_CONTENT?resolve(window.MATH_CONCEPT_CONTENT):reject(new Error('수학 콘텐츠 형식 오류'));
+    script.onerror=()=>reject(new Error('수학 콘텐츠 네트워크 오류'));
+    document.head.appendChild(script);
+  }).catch(error=>{mathContentLoadPromise=null;throw error;});
+  return mathContentLoadPromise;
+}
+
+function mathProgressKey(name){return MATH_PROGRESS_STORAGE_PREFIX+String(name||'');}
+function defaultMathProgress(student){
+  return {schemaVersion:1,studentKey:student.name,grade:student.grade,unitId:student.mathUnitId,
+    prerequisite:{completed:false,results:{}},core:{visitedConceptIds:[],checks:{}},
+    finalAssessment:{attempts:[],latestAnswers:{},correctCount:0,wrongConceptIds:[]},
+    completed:false,completedAt:null,resume:{phase:'intro',conceptId:null,questionId:null},
+    updatedAt:'',syncRevision:0,lastServerRevision:0,pendingSync:false};
+}
+function normalizeMathProgress(raw,student){
+  const base=defaultMathProgress(student);
+  if(!raw||typeof raw!=='object'||raw.studentKey!==student.name||raw.unitId!==student.mathUnitId)return base;
+  const p={...base,...raw};
+  p.prerequisite={...base.prerequisite,...(raw.prerequisite||{}),results:{...((raw.prerequisite||{}).results||{})}};
+  p.core={...base.core,...(raw.core||{}),visitedConceptIds:Array.isArray(raw.core?.visitedConceptIds)?raw.core.visitedConceptIds.slice():[],checks:{...(raw.core?.checks||{})}};
+  p.finalAssessment={...base.finalAssessment,...(raw.finalAssessment||{}),attempts:Array.isArray(raw.finalAssessment?.attempts)?raw.finalAssessment.attempts.slice():[],latestAnswers:{...(raw.finalAssessment?.latestAnswers||{})},wrongConceptIds:Array.isArray(raw.finalAssessment?.wrongConceptIds)?raw.finalAssessment.wrongConceptIds.slice():[]};
+  p.resume={...base.resume,...(raw.resume||{})};
+  p.syncRevision=Math.max(0,Number(p.syncRevision)||0);
+  return p;
+}
+function readLocalMathProgress(student){
+  try{return normalizeMathProgress(JSON.parse(localStorage.getItem(mathProgressKey(student.name))||'null'),student);}catch(error){return defaultMathProgress(student);}
+}
+function writeLocalMathProgress(){
+  if(!mathProgress||isLearningWriteBlocked())return;
+  try{localStorage.setItem(mathProgressKey(mathProgress.studentKey),JSON.stringify(mathProgress));}catch(error){console.warn('수학 진행 로컬 저장 실패:',error);}
+}
+function mathAttemptKey(a){return [a.questionId,a.source,a.attemptedAt].join('|');}
+function mergeMathAttemptLists(a,b){
+  const out=[],seen=new Set();
+  [...(Array.isArray(a)?a:[]),...(Array.isArray(b)?b:[])].forEach(item=>{const key=mathAttemptKey(item||{});if(!seen.has(key)){seen.add(key);out.push(item);}});
+  return out.sort((x,y)=>String(x.attemptedAt||'').localeCompare(String(y.attemptedAt||'')));
+}
+function mergeMathProgress(local,server,student){
+  const l=normalizeMathProgress(local,student),s=normalizeMathProgress(server,student);
+  const localNewer=l.syncRevision>s.syncRevision||(l.syncRevision===s.syncRevision&&String(l.updatedAt||'')>=String(s.updatedAt||''));
+  const merged=normalizeMathProgress(localNewer?l:s,student);
+  Object.keys({...l.prerequisite.results,...s.prerequisite.results}).forEach(id=>{
+    const lr=l.prerequisite.results[id]||{},sr=s.prerequisite.results[id]||{};
+    const latest=String(lr.updatedAt||'')>=String(sr.updatedAt||'')?lr:sr;
+    merged.prerequisite.results[id]={...latest,attempts:mergeMathAttemptLists(lr.attempts,sr.attempts),reviewAttempts:mergeMathAttemptLists(lr.reviewAttempts,sr.reviewAttempts),reviewCompleted:!!(lr.reviewCompleted||sr.reviewCompleted)};
+  });
+  Object.keys({...l.core.checks,...s.core.checks}).forEach(id=>{
+    const lc=l.core.checks[id]||{},sc=s.core.checks[id]||{};
+    merged.core.checks[id]={...(String(lc.updatedAt||'')>=String(sc.updatedAt||'')?lc:sc),attempts:mergeMathAttemptLists(lc.attempts,sc.attempts)};
+  });
+  merged.core.visitedConceptIds=Array.from(new Set([...l.core.visitedConceptIds,...s.core.visitedConceptIds]));
+  merged.finalAssessment.attempts=mergeMathAttemptLists(l.finalAssessment.attempts,s.finalAssessment.attempts);
+  merged.completed=!!(l.completed||s.completed);
+  merged.completedAt=merged.completed?(l.completedAt||s.completedAt||null):null;
+  merged.syncRevision=Math.max(l.syncRevision,s.syncRevision);
+  merged.lastServerRevision=Math.max(Number(l.lastServerRevision)||0,Number(s.syncRevision)||0);
+  merged.pendingSync=l.pendingSync===true&&l.syncRevision>s.syncRevision;
+  recalculateMathFinalResult(merged);
+  return merged;
+}
+
+async function apiGetMathConceptProgress(name){
+  if(!apiConfigured()||!name)return {ok:false,data:null};
+  try{
+    const res=await fetch(API_URL+'?action=getMathConceptProgress&name='+encodeURIComponent(name),{cache:'no-store'});
+    const payload=await res.json();
+    return payload&&typeof payload==='object'?payload:{ok:false,data:null};
+  }catch(error){console.warn('수학 진행 서버 조회 실패:',error);return {ok:false,data:null};}
+}
+async function apiSaveMathConceptProgress(snapshot){
+  if(isLearningWriteBlocked()||!apiConfigured())return {ok:false,blocked:true};
+  try{
+    const body=new URLSearchParams();
+    body.set('action','saveMathConceptProgress');body.set('name',snapshot.studentKey);
+    body.set('data',JSON.stringify(snapshot));body.set('isAdminMode',isAdminSessionActive()?'true':'false');
+    const res=await fetch(API_URL,{method:'POST',body});
+    return await res.json();
+  }catch(error){console.warn('수학 진행 서버 저장 실패:',error);return {ok:false,error:'NETWORK_ERROR'};}
+}
+function queueMathServerSave(){
+  if(!mathProgress||isLearningWriteBlocked())return;
+  mathPendingServerSnapshot=JSON.parse(JSON.stringify(mathProgress));
+  if(mathSaveSending)return;
+  mathSaveSending=true;
+  (async()=>{
+    while(mathPendingServerSnapshot){
+      const snapshot=mathPendingServerSnapshot;mathPendingServerSnapshot=null;
+      const result=await apiSaveMathConceptProgress(snapshot);
+      if(result?.ok){
+        if(mathProgress&&mathProgress.studentKey===snapshot.studentKey){
+          mathProgress.lastServerRevision=Math.max(Number(mathProgress.lastServerRevision)||0,Number(result.savedRevision)||snapshot.syncRevision);
+          mathProgress.pendingSync=mathProgress.syncRevision>mathProgress.lastServerRevision;
+          writeLocalMathProgress();
+        }
+      }else if(result?.error==='STALE_REVISION'&&result.data&&mathProgress){
+        const student=STUDENTS.find(s=>s.name===snapshot.studentKey);
+        mathProgress=mergeMathProgress(mathProgress,result.data,student);
+        mathProgress.syncRevision=Math.max(mathProgress.syncRevision,Number(result.savedRevision)||0)+1;
+        mathProgress.updatedAt=new Date().toISOString();mathProgress.pendingSync=true;
+        writeLocalMathProgress();mathPendingServerSnapshot=JSON.parse(JSON.stringify(mathProgress));
+      }else{
+        console.warn('수학 진행 서버 저장 보류:',result?.error||result);
+        if(mathProgress&&mathProgress.studentKey===snapshot.studentKey){mathProgress.pendingSync=true;writeLocalMathProgress();}
+      }
+    }
+    mathSaveSending=false;
+  })();
+}
+function commitMathProgress(resume){
+  if(!mathProgress||isLearningWriteBlocked())return;
+  if(resume)mathProgress.resume={...mathProgress.resume,...resume};
+  mathProgress.syncRevision=(Number(mathProgress.syncRevision)||0)+1;
+  mathProgress.updatedAt=new Date().toISOString();mathProgress.pendingSync=true;
+  writeLocalMathProgress();queueMathServerSave();
+}
+
+function mathEscape(value){return String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+function normalizeMathAnswer(value){return String(value??'').toLowerCase().replace(/\s+/g,'').replace(/[×*]/g,'x').replace(/°/g,'');}
+function isMathAnswerCorrect(question,value){return (question.acceptedAnswers||[question.correctAnswer]).some(a=>normalizeMathAnswer(a)===normalizeMathAnswer(value));}
+function makeMathAttempt(question,value,source){return {questionId:question.id,conceptId:question.conceptId,selectedAnswer:String(value),correct:isMathAnswerCorrect(question,value),attemptedAt:new Date().toISOString(),source};}
+function mathQuestionHtml(question,submitFn){
+  const choices=Array.isArray(question.choices)&&question.choices.length?question.choices.map((choice,i)=>`<button type="button" class="math-choice ${mathSelectedAnswer===choice?'selected':''}" onclick="selectMathAnswer(${JSON.stringify(choice).replace(/"/g,'&quot;')})">${i+1}. ${mathEscape(choice)}</button>`).join(''):`<input class="math-answer" id="math-answer-input" inputmode="text" autocomplete="off" placeholder="답을 입력하세요" value="${mathEscape(mathSelectedAnswer)}" oninput="mathSelectedAnswer=this.value">`;
+  return `<div class="math-equation">${mathEscape(question.question)}</div>${choices}${mathFeedback?`<div class="math-feedback ${mathFeedback.correct?'ok':'bad'}">${mathFeedback.correct?'✓ 정답':'△ 다시 확인'} · ${mathEscape(mathFeedback.explanation)}</div>`:''}<div class="math-actions"><button type="button" class="math-primary" onclick="${submitFn}">답 확인하기</button></div>`;
+}
+function selectMathAnswer(value){mathSelectedAnswer=value;document.querySelectorAll('#math-concept-root .math-choice').forEach(btn=>btn.classList.toggle('selected',btn.textContent.replace(/^\d+\.\s*/, '')===value));}
+function setMathPhaseLabel(text){const el=document.getElementById('math-step-label');if(el)el.textContent=text||'';}
+function renderMathCard(kicker,title,body){document.getElementById('math-concept-root').innerHTML=`<section class="math-card"><div class="math-kicker">${mathEscape(kicker)}</div><h2>${mathEscape(title)}</h2>${body}</section>`;}
+
+async function openMathConceptLearning(){
+  if(!playerName){showToast2('⚠️ 먼저 학생으로 로그인해주세요.');return;}
+  const student=STUDENTS.find(s=>s.name===playerName);
+  if(!student)return;
+  try{await loadMathConceptContent();}catch(error){console.error(error);showToast2('⚠️ 수학 학습자료를 불러오지 못했어요.');return;}
+  const unit=window.MATH_CONCEPT_CONTENT.units[student.mathUnitId];
+  if(!unit){showToast2('⏳ 이 학년 수학개념학습은 다음 단계에서 열려요.');return;}
+  mathActiveStudent=student.name;mathActiveUnit=unit;mathProgress=readLocalMathProgress(student);
+  mathSelectedAnswer='';mathFeedback=null;mathEntryIntro=true;
+  htShowOnlyScreen('math-concept-screen');renderMathPhase();
+  apiGetMathConceptProgress(student.name).then(result=>{
+    if(mathActiveStudent!==student.name||!result?.ok)return;
+    if(result.data)mathProgress=mergeMathProgress(mathProgress,result.data,student);
+    writeLocalMathProgress();mathEntryIntro=true;renderMathPhase();
+    if(mathProgress.pendingSync)queueMathServerSave();
+  });
+}
+function closeMathConceptLearning(){mathSelectedAnswer='';mathFeedback=null;mathEntryIntro=false;mathActiveStudent='';mathActiveUnit=null;mathProgress=null;goHome();}
+function renderMathPhase(){
+  if(!mathProgress||!mathActiveUnit)return;
+  if(mathEntryIntro){renderMathIntro();window.scrollTo({top:0,behavior:'auto'});return;}
+  const phase=mathProgress.resume.phase||'intro';
+  const renderers={'intro':renderMathIntro,'prerequisite-check':renderMathPrerequisiteCheck,'prerequisite-result':renderMathPrerequisiteResult,'prerequisite-review':renderMathPrerequisiteReview,'core-concept':renderMathCoreConcept,'concept-check':renderMathConceptCheck,'final-check':renderMathFinalCheck,'result':renderMathResult};
+  (renderers[phase]||renderMathIntro)();window.scrollTo({top:0,behavior:'auto'});
+}
+function renderMathIntro(){
+  setMathPhaseLabel('오늘 배울 단원');
+  const started=mathProgress.syncRevision>0||mathProgress.resume.phase!=='intro';
+  const actions=mathProgress.completed?`<button class="math-primary" onclick="showSavedMathResult()">결과 보기</button><button class="math-secondary" onclick="restartMathLearning()">다시 학습하기</button>`:`<button class="math-primary" onclick="startOrResumeMathLearning()">${started?'이어서 학습하기 →':'이전 개념 확인하기 →'}</button>`;
+  renderMathCard(`${mathActiveUnit.gradeLabel} 수학`,mathActiveUnit.title,`<p>${mathEscape(mathActiveUnit.intro)}</p><div class="math-actions">${actions}</div>`);
+}
+function startOrResumeMathLearning(){
+  mathEntryIntro=false;
+  const phase=mathProgress.resume.phase;
+  if(phase==='intro'){commitMathProgress({phase:'prerequisite-check',questionId:mathActiveUnit.prerequisites[0].question.id});}
+  renderMathPhase();
+}
+function findPrerequisiteIndex(){const qid=mathProgress.resume.questionId;const idx=mathActiveUnit.prerequisites.findIndex(p=>p.question.id===qid);return idx>=0?idx:0;}
+function renderMathPrerequisiteCheck(){
+  const idx=findPrerequisiteIndex(),item=mathActiveUnit.prerequisites[idx];setMathPhaseLabel(`이전 개념 ${idx+1} / ${mathActiveUnit.prerequisites.length}`);
+  renderMathCard('① 이전 개념 확인',item.title,mathQuestionHtml(item.question,'submitMathPrerequisite()'));
+}
+function submitMathPrerequisite(){
+  if(!String(mathSelectedAnswer).trim()){showToast2('답을 선택하거나 입력해주세요.');return;}
+  const idx=findPrerequisiteIndex(),item=mathActiveUnit.prerequisites[idx],attempt=makeMathAttempt(item.question,mathSelectedAnswer,'prerequisite');
+  const old=mathProgress.prerequisite.results[item.id]||{};
+  mathProgress.prerequisite.results[item.id]={...old,status:attempt.correct?'understood':'needs-review',correct:attempt.correct,attempts:[...(old.attempts||[]),attempt],updatedAt:attempt.attemptedAt};
+  mathFeedback={correct:attempt.correct,explanation:item.question.explanation};commitMathProgress();
+  setTimeout(()=>{mathSelectedAnswer='';mathFeedback=null;if(idx<mathActiveUnit.prerequisites.length-1)commitMathProgress({phase:'prerequisite-check',questionId:mathActiveUnit.prerequisites[idx+1].question.id});else{mathProgress.prerequisite.completed=true;commitMathProgress({phase:'prerequisite-result',questionId:null});}renderMathPhase();},500);
+}
+function renderMathPrerequisiteResult(){
+  setMathPhaseLabel('준비도 결과');
+  const rows=mathActiveUnit.prerequisites.map(item=>{const r=mathProgress.prerequisite.results[item.id]||{};return `<div class="math-status-row"><span>${r.status==='understood'||r.reviewCompleted?'✓':'△'}</span><span>${mathEscape(item.title)} · ${r.status==='understood'?'이해함':r.reviewCompleted?'다시 확인했어요':'복습 필요'}</span></div>`;}).join('');
+  const needs=mathActiveUnit.prerequisites.some(item=>mathProgress.prerequisite.results[item.id]?.status==='needs-review'&&!mathProgress.prerequisite.results[item.id]?.reviewCompleted);
+  renderMathCard('② 결과 확인',`${mathActiveUnit.title} 준비도`,`<div class="math-status-list">${rows}</div><div class="math-actions">${needs?'<button class="math-primary" onclick="startMathPrerequisiteReview()">필요한 개념 복습하기</button>':''}<button class="math-secondary" onclick="startMathCoreLearning()">바로 본 학습 시작하기</button></div>`);
+}
+function startMathPrerequisiteReview(){const item=mathActiveUnit.prerequisites.find(p=>mathProgress.prerequisite.results[p.id]?.status==='needs-review'&&!mathProgress.prerequisite.results[p.id]?.reviewCompleted);commitMathProgress({phase:'prerequisite-review',conceptId:item?.id||null,questionId:item?.reviewQuestion.id||null});mathSelectedAnswer='';mathFeedback=null;renderMathPhase();}
+function renderMathPrerequisiteReview(){
+  const item=mathActiveUnit.prerequisites.find(p=>p.id===mathProgress.resume.conceptId)||mathActiveUnit.prerequisites[0];setMathPhaseLabel('③ 필요한 개념 복습');
+  renderMathCard('짧은 복습',item.title,`<p>${mathEscape(item.summary)}</p><div class="math-equation">${mathEscape(item.example)}</div>${mathQuestionHtml(item.reviewQuestion,'submitMathPrerequisiteReview()')}`);
+}
+function submitMathPrerequisiteReview(){
+  if(!String(mathSelectedAnswer).trim()){showToast2('답을 선택하거나 입력해주세요.');return;}
+  const item=mathActiveUnit.prerequisites.find(p=>p.id===mathProgress.resume.conceptId),attempt=makeMathAttempt(item.reviewQuestion,mathSelectedAnswer,'prerequisite-review');
+  const result=mathProgress.prerequisite.results[item.id]||{};result.reviewAttempts=[...(result.reviewAttempts||[]),attempt];result.reviewCompleted=true;result.updatedAt=attempt.attemptedAt;mathProgress.prerequisite.results[item.id]=result;
+  mathFeedback={correct:attempt.correct,explanation:item.reviewQuestion.explanation};commitMathProgress();
+  setTimeout(()=>{mathSelectedAnswer='';mathFeedback=null;const next=mathActiveUnit.prerequisites.find(p=>mathProgress.prerequisite.results[p.id]?.status==='needs-review'&&!mathProgress.prerequisite.results[p.id]?.reviewCompleted);if(next)commitMathProgress({phase:'prerequisite-review',conceptId:next.id,questionId:next.reviewQuestion.id});else commitMathProgress({phase:'prerequisite-result',conceptId:null,questionId:null});renderMathPhase();},500);
+}
+function startMathCoreLearning(){const first=mathActiveUnit.coreConcepts[0];commitMathProgress({phase:'core-concept',conceptId:first.id,questionId:null});renderMathPhase();}
+function currentCoreConcept(){return mathActiveUnit.coreConcepts.find(c=>c.id===mathProgress.resume.conceptId)||mathActiveUnit.coreConcepts[0];}
+function renderMathCoreConcept(){
+  const concept=currentCoreConcept(),idx=mathActiveUnit.coreConcepts.indexOf(concept);setMathPhaseLabel(`④ 핵심개념 ${idx+1} / ${mathActiveUnit.coreConcepts.length}`);
+  if(!mathProgress.core.visitedConceptIds.includes(concept.id)){mathProgress.core.visitedConceptIds.push(concept.id);commitMathProgress();}
+  const weak=concept.prerequisiteLinks.find(id=>mathProgress.prerequisite.results[id]?.status==='needs-review');
+  const note=weak?`<div class="math-prereq-note">△ 여기서는 ${mathEscape(mathActiveUnit.prerequisites.find(p=>p.id===weak)?.title)} 개념이 필요해요.</div>`:'';
+  const lines=concept.lines.map(line=>line.includes('=')||line.includes('→')?`<div class="math-equation">${mathEscape(line)}</div>`:`<p>${mathEscape(line)}</p>`).join('');
+  renderMathCard('핵심개념',concept.title,`${note}${lines}<div class="math-actions"><button class="math-primary" onclick="openMathConceptCheck()">확인문제 풀기 →</button></div>`);
+}
+function openMathConceptCheck(){const c=currentCoreConcept();mathSelectedAnswer='';mathFeedback=null;commitMathProgress({phase:'concept-check',conceptId:c.id,questionId:c.checkQuestion.id});renderMathPhase();}
+function renderMathConceptCheck(){const c=currentCoreConcept(),idx=mathActiveUnit.coreConcepts.indexOf(c);setMathPhaseLabel(`⑤ 확인문제 ${idx+1} / ${mathActiveUnit.coreConcepts.length}`);renderMathCard('개념별 확인문제',c.title,mathQuestionHtml(c.checkQuestion,'submitMathConceptCheck()')+(mathFeedback&&!mathFeedback.correct?`<div class="math-actions"><button class="math-secondary" onclick="returnToMathConcept()">이 개념 다시 보기</button><button class="math-secondary" onclick="advanceAfterMathConceptCheck()">다음 개념으로 이동</button></div>`:''));}
+function submitMathConceptCheck(){
+  if(!String(mathSelectedAnswer).trim()){showToast2('답을 선택하거나 입력해주세요.');return;}
+  const c=currentCoreConcept(),attempt=makeMathAttempt(c.checkQuestion,mathSelectedAnswer,'concept-check'),old=mathProgress.core.checks[c.id]||{};
+  mathProgress.core.checks[c.id]={...old,correct:attempt.correct,attempts:[...(old.attempts||[]),attempt],updatedAt:attempt.attemptedAt};mathFeedback={correct:attempt.correct,explanation:attempt.correct?'잘 이해했어요!':c.checkQuestion.explanation};commitMathProgress();
+  if(attempt.correct)setTimeout(()=>advanceAfterMathConceptCheck(),500);else renderMathPhase();
+}
+function returnToMathConcept(){mathSelectedAnswer='';mathFeedback=null;commitMathProgress({phase:'core-concept',questionId:null});renderMathPhase();}
+function advanceAfterMathConceptCheck(){const c=currentCoreConcept(),idx=mathActiveUnit.coreConcepts.indexOf(c);mathSelectedAnswer='';mathFeedback=null;if(idx<mathActiveUnit.coreConcepts.length-1)commitMathProgress({phase:'core-concept',conceptId:mathActiveUnit.coreConcepts[idx+1].id,questionId:null});else commitMathProgress({phase:'final-check',conceptId:null,questionId:mathActiveUnit.finalQuestions[0].id});renderMathPhase();}
+function findFinalIndex(){const idx=mathActiveUnit.finalQuestions.findIndex(q=>q.id===mathProgress.resume.questionId);return idx>=0?idx:0;}
+function renderMathFinalCheck(){const idx=findFinalIndex(),q=mathActiveUnit.finalQuestions[idx];setMathPhaseLabel(`⑥ 마지막 확인 ${idx+1} / ${mathActiveUnit.finalQuestions.length}`);renderMathCard('마지막 확인문제',`${idx+1}번`,mathQuestionHtml(q,'submitMathFinalAnswer()'));}
+function submitMathFinalAnswer(){
+  if(!String(mathSelectedAnswer).trim()){showToast2('답을 선택하거나 입력해주세요.');return;}
+  const idx=findFinalIndex(),q=mathActiveUnit.finalQuestions[idx],attempt=makeMathAttempt(q,mathSelectedAnswer,'final');mathProgress.finalAssessment.attempts.push(attempt);mathProgress.finalAssessment.latestAnswers[q.id]=attempt;recalculateMathFinalResult(mathProgress);mathFeedback={correct:attempt.correct,explanation:q.explanation};commitMathProgress();
+  setTimeout(()=>{mathSelectedAnswer='';mathFeedback=null;if(idx<mathActiveUnit.finalQuestions.length-1)commitMathProgress({phase:'final-check',questionId:mathActiveUnit.finalQuestions[idx+1].id});else commitMathProgress({phase:'result',questionId:null});renderMathPhase();},500);
+}
+function recalculateMathFinalResult(progress){
+  if(!progress||!mathActiveUnit)return;
+  const latest=progress.finalAssessment.latestAnswers||{};const answers=mathActiveUnit.finalQuestions.map(q=>latest[q.id]).filter(Boolean);
+  progress.finalAssessment.correctCount=answers.filter(a=>a.correct).length;
+  progress.finalAssessment.wrongConceptIds=Array.from(new Set(answers.filter(a=>!a.correct).map(a=>a.conceptId)));
+}
+function renderMathResult(){
+  recalculateMathFinalResult(mathProgress);setMathPhaseLabel('⑦ 학습 결과');
+  const rows=mathActiveUnit.coreConcepts.map(c=>{const wrong=mathProgress.finalAssessment.wrongConceptIds.includes(c.id);return `<div class="math-status-row"><span>${wrong?'△':'✓'}</span><span>${mathEscape(c.title)}</span>${wrong?`<button class="math-secondary" style="width:auto;min-height:36px;margin-left:auto" onclick="reviewMathConcept('${c.id}')">다시 보기</button>`:''}</div>`;}).join('');
+  const preRows=mathActiveUnit.prerequisites.map(p=>{const r=mathProgress.prerequisite.results[p.id]||{};return `<div class="math-status-row"><span>${r.status==='understood'||r.reviewCompleted?'✓':'△'}</span><span>${mathEscape(p.title)}</span></div>`;}).join('');
+  renderMathCard('오늘의 수학 개념 결과',`${mathProgress.finalAssessment.correctCount} / ${mathActiveUnit.finalQuestions.length} 정답`,`<div class="math-status-list">${rows}</div><details><summary>선수개념 결과 보기</summary><div class="math-status-list">${preRows}</div></details><div class="math-actions"><button class="math-primary" onclick="completeMathLearning()">학습 완료하기</button></div>`);
+}
+function reviewMathConcept(id){commitMathProgress({phase:'core-concept',conceptId:id,questionId:null});renderMathPhase();}
+function completeMathLearning(){mathEntryIntro=false;mathProgress.completed=true;mathProgress.completedAt=new Date().toISOString();commitMathProgress({phase:'result',conceptId:null,questionId:null});SFX.complete();showToast2('✅ 수학개념학습을 완료했어요!');renderMathPhase();}
+function showSavedMathResult(){mathEntryIntro=false;commitMathProgress({phase:'result'});renderMathPhase();}
+function restartMathLearning(){mathEntryIntro=false;const student=STUDENTS.find(s=>s.name===mathActiveStudent);mathProgress=defaultMathProgress(student);commitMathProgress({phase:'prerequisite-check',questionId:mathActiveUnit.prerequisites[0].question.id});renderMathPhase();}
+
 // ===== 기존 inline script 9 =====
 onAppDomReady_(()=>{
   updateFontPickerVisibility();
@@ -12116,7 +12378,7 @@ onAppDomReady_(()=>{
     'start-screen','student-select-view','learning-home-view','quiz-screen','result-screen',
     'teacher-screen','parent-screen','timeline-game-screen','ht-list-screen','ht-part-screen',
     'history-summary-screen','summary-screen','lecture-screen','qbank-screen',
-    'map-study-list-screen','map-study-quiz-screen','map-study-learn-screen'
+    'map-study-list-screen','map-study-quiz-screen','map-study-learn-screen','math-concept-screen'
   ];
 
   const observer=new MutationObserver(()=>updateFontPickerVisibility());

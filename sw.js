@@ -1,8 +1,9 @@
-const CACHE_NAME = 'samguk-culture-quiz-v46-perf4';
+const CACHE_NAME = 'samguk-culture-quiz-v47-math1';
 const ASSETS = [
   './index.html',
-  './app.js?v=20260828-1',
+  './app.js?v=20260831-math-1',
   './learning-content.js?v=20260825-content-19',
+  './math-content.js?v=20260831-math-1',
   './manifest.json',
   './icon-192.png',
   './icon-512.png'
@@ -65,7 +66,7 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  if(url.pathname.endsWith('/learning-content.js')){
+  if(url.pathname.endsWith('/learning-content.js')||url.pathname.endsWith('/math-content.js')){
     // 재실행 때는 저장된 콘텐츠를 즉시 사용하고 최신본은 뒤에서 갱신합니다.
     // 문제 파일을 새로 배포한 경우 이번 실행이 캐시를 갱신하고 다음 실행부터 새 자료가 적용됩니다.
     const contentRefreshPromise=(async()=>{
