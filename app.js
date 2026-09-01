@@ -4562,15 +4562,22 @@ function getResolvedMathWrongPracticeItems_(name){
 
 async function openMathWrongPractice(){
   if(!playerName)return;
-  await loadMathConceptProgressForName_(playerName);
-  mathWrongPracticeQueue=getMathWrongPracticeItems_(playerName);
-  mathWrongPracticeReplayMode=mathWrongPracticeQueue.length===0&&getResolvedMathWrongPracticeItems_(playerName).length>0;
-  if(mathWrongPracticeReplayMode)mathWrongPracticeQueue=getResolvedMathWrongPracticeItems_(playerName);
-  if(mathWrongPracticeQueue.length&&mathWrongPracticeQueue.every(item=>isHomeworkPastDue_(playerName,(window.MATH_CONTENT||window.MATH_CONCEPT_CONTENT)?.units?.[item.unitId]?.scheduledDate||''))){showToast2('🔒 오늘 학습 시간이 종료되었습니다.');return;}
-  const wrongScreen=document.getElementById('math-concept-screen');if(wrongScreen)wrongScreen.dataset.homeworkDueDate=mathWrongPracticeQueue[0]?(window.MATH_CONTENT||window.MATH_CONCEPT_CONTENT)?.units?.[mathWrongPracticeQueue[0].unitId]?.scheduledDate||'':'';
-  mathWrongPracticeSelected=null;mathWrongPracticeFeedback=null;mathWrongPracticePhase='concept';
-  htShowOnlyScreen('math-concept-screen');
-  renderMathWrongPractice_();
+  const __card=document.getElementById('math-wrong-practice-card');
+  if(__card){ if(__card.classList.contains('tap-pending'))return; __card.classList.add('tap-pending'); }
+  try{
+    // 진행 상태는 로그인 시 이미 캐시돼 있으므로 재조회를 기다리지 않고 화면부터 연다 — 최신값은 백그라운드로만 확인.
+    loadMathConceptProgressForName_(playerName).catch(error=>console.warn('오답연습 진행 상태 백그라운드 갱신 실패:',error));
+    mathWrongPracticeQueue=getMathWrongPracticeItems_(playerName);
+    mathWrongPracticeReplayMode=mathWrongPracticeQueue.length===0&&getResolvedMathWrongPracticeItems_(playerName).length>0;
+    if(mathWrongPracticeReplayMode)mathWrongPracticeQueue=getResolvedMathWrongPracticeItems_(playerName);
+    if(mathWrongPracticeQueue.length&&mathWrongPracticeQueue.every(item=>isHomeworkPastDue_(playerName,(window.MATH_CONTENT||window.MATH_CONCEPT_CONTENT)?.units?.[item.unitId]?.scheduledDate||''))){showToast2('🔒 오늘 학습 시간이 종료되었습니다.');return;}
+    const wrongScreen=document.getElementById('math-concept-screen');if(wrongScreen)wrongScreen.dataset.homeworkDueDate=mathWrongPracticeQueue[0]?(window.MATH_CONTENT||window.MATH_CONCEPT_CONTENT)?.units?.[mathWrongPracticeQueue[0].unitId]?.scheduledDate||'':'';
+    mathWrongPracticeSelected=null;mathWrongPracticeFeedback=null;mathWrongPracticePhase='concept';
+    htShowOnlyScreen('math-concept-screen');
+    renderMathWrongPractice_();
+  }finally{
+    if(__card)__card.classList.remove('tap-pending');
+  }
 }
 
 function renderMathWrongPractice_(){
@@ -4676,15 +4683,24 @@ function mathConceptReviewQuestionHtml_(question){
   return `<h2>${mathEscape(question.question)}</h2>${question.diagram?`<div class="math-diagram">${question.diagram}</div>`:''}<div class="math-options">${choices||input}</div><div class="math-actions"><button type="button" class="math-primary" onclick="submitMathConceptReviewAnswer()">답 확인하기</button></div>`;
 }
 async function openMathConceptReviewLearning(unitId=''){
-  if(!playerName)return;const content=await loadMathConceptContent(),student=STUDENTS.find(item=>item.name===playerName);await loadMathConceptProgressForName_(playerName);
-  unitId=unitId||getMathActiveUnitId_(student,content);const unit=content.units?.[unitId],progress=pickNewerMathConceptProgress_(readMathConceptProgressWithMigration_(playerName,unitId),mathConceptProgressOverviewCache[mathConceptCacheKey_(playerName,unitId)]);
-  if(isHomeworkPastDue_(playerName,unit?.scheduledDate||'')){showToast2('🔒 오늘 학습 시간이 종료되었습니다.');return;}
-  const reviewScreen=document.getElementById('math-concept-screen');if(reviewScreen)reviewScreen.dataset.homeworkDueDate=unit?.scheduledDate||'';
-  const alreadyCompleted=progress?.conceptReviewLearning?.completed===true,basicCompleted=!Array.isArray(unit?.basicConceptReview)||!unit.basicConceptReview.length||progress?.basicConceptReview?.completed===true,priorLocked=unit?getMathSequentialLock_(playerName,unitId,content).locked:true;
-  if(!unit?.conceptReviewLearning||progress?.studentKey!==playerName||progress?.unitId!==unitId||(!alreadyCompleted&&(progress.completed!==true||!basicCompleted||priorLocked))){showToast2('이전 수학 필수 학습을 먼저 완료해 주세요.');return;}
-  mathConceptReviewUnit=unit;mathConceptReviewItems=unit.conceptReviewLearning.questions||[];mathConceptReviewState={...defaultMathConceptReviewState_(),...(progress.conceptReviewLearning||{}),results:{...(progress.conceptReviewLearning?.results||{})}};
-  if(mathConceptReviewState.completed&&!mathConceptReviewState.relearning){mathConceptReviewState.phase='completed';}
-  mathConceptReviewAnswer='';htShowOnlyScreen('math-concept-screen');renderMathConceptReviewLearning_();
+  if(!playerName)return;
+  const __card=document.getElementById('math-concept-review-card');
+  if(__card){ if(__card.classList.contains('tap-pending'))return; __card.classList.add('tap-pending'); }
+  try{
+    const content=await loadMathConceptContent(),student=STUDENTS.find(item=>item.name===playerName);
+    // 진행 상태는 로그인 시 이미 캐시돼 있으므로 재조회를 기다리지 않고 화면부터 연다 — 최신값은 백그라운드로만 확인.
+    loadMathConceptProgressForName_(playerName).catch(error=>console.warn('개념복습학습 진행 상태 백그라운드 갱신 실패:',error));
+    unitId=unitId||getMathActiveUnitId_(student,content);const unit=content.units?.[unitId],progress=pickNewerMathConceptProgress_(readMathConceptProgressWithMigration_(playerName,unitId),mathConceptProgressOverviewCache[mathConceptCacheKey_(playerName,unitId)]);
+    if(isHomeworkPastDue_(playerName,unit?.scheduledDate||'')){showToast2('🔒 오늘 학습 시간이 종료되었습니다.');return;}
+    const reviewScreen=document.getElementById('math-concept-screen');if(reviewScreen)reviewScreen.dataset.homeworkDueDate=unit?.scheduledDate||'';
+    const alreadyCompleted=progress?.conceptReviewLearning?.completed===true,basicCompleted=!Array.isArray(unit?.basicConceptReview)||!unit.basicConceptReview.length||progress?.basicConceptReview?.completed===true,priorLocked=unit?getMathSequentialLock_(playerName,unitId,content).locked:true;
+    if(!unit?.conceptReviewLearning||progress?.studentKey!==playerName||progress?.unitId!==unitId||(!alreadyCompleted&&(progress.completed!==true||!basicCompleted||priorLocked))){showToast2('이전 수학 필수 학습을 먼저 완료해 주세요.');return;}
+    mathConceptReviewUnit=unit;mathConceptReviewItems=unit.conceptReviewLearning.questions||[];mathConceptReviewState={...defaultMathConceptReviewState_(),...(progress.conceptReviewLearning||{}),results:{...(progress.conceptReviewLearning?.results||{})}};
+    if(mathConceptReviewState.completed&&!mathConceptReviewState.relearning){mathConceptReviewState.phase='completed';}
+    mathConceptReviewAnswer='';htShowOnlyScreen('math-concept-screen');renderMathConceptReviewLearning_();
+  }finally{
+    if(__card)__card.classList.remove('tap-pending');
+  }
 }
 function renderMathConceptReviewLearning_(){
   const root=document.getElementById('math-concept-root'),step=document.getElementById('math-step-label');if(!root||!mathConceptReviewUnit)return;
@@ -4733,17 +4749,27 @@ function mathBasicReviewQuestionHtml_(question){
   return `<h2>${mathEscape(question.question)}</h2>${question.diagram?`<div class="math-diagram">${question.diagram}</div>`:''}${choices||input}<div class="math-actions"><button type="button" class="math-primary" onclick="submitMathBasicReviewAnswer()">답 확인하기</button></div>`;
 }
 async function openMathBasicConceptReview(unitId){
-  if(!playerName)return;const content=await loadMathConceptContent();await loadMathConceptProgressForName_(playerName);
-  const eligible=getMathBasicConceptReviewUnits_(playerName).find(item=>item.unitId===unitId),unit=content.units?.[unitId];
-  if(isHomeworkPastDue_(playerName,unit?.scheduledDate||'')){showToast2('🔒 오늘 학습 시간이 종료되었습니다.');return;}
-  const basicScreen=document.getElementById('math-concept-screen');if(basicScreen)basicScreen.dataset.homeworkDueDate=unit?.scheduledDate||'';
-  if(!eligible||!unit||!Array.isArray(unit.basicConceptReview)){showToast2('아직 기본개념 확인 시간이 아니에요.');return;}
-  mathBasicReviewUnit=unit;mathBasicReviewItems=unit.basicConceptReview;const saved=eligible.progress.basicConceptReview||{};
-  const hadRecord=hasMathBasicReviewRecord_(eligible.progress),retroactive=isMathBasicReviewRetroactive_(eligible.progress,unitId,new Date(),content);
-  mathBasicReviewState={createdAt:saved.createdAt||new Date().toISOString(),createdForCompletedAt:saved.createdForCompletedAt||eligible.progress.completedAt,createdForScheduledDate:saved.createdForScheduledDate||unit.scheduledDate,createdMode:saved.createdMode||(retroactive?'retroactive':'scheduled-next-day'),completed:saved.completed===true,completedAt:saved.completedAt||null,firstCompletedAt:saved.firstCompletedAt||saved.completedAt||null,relearning:saved.relearning===true,history:[...(saved.history||[])],results:{...(saved.results||{})}};
-  if(!hadRecord)await saveMathBasicConceptReview_(playerName,unitId,mathBasicReviewState);
-  const current=getMathBasicReviewCurrent_();mathBasicReviewAnswer='';mathBasicReviewShowingConcept=!!(current&&mathBasicReviewState.results[current.conceptId]?.needsReview);
-  htShowOnlyScreen('math-concept-screen');renderMathBasicConceptReview_();
+  if(!playerName)return;
+  const __card=document.getElementById('math-basic-review-card');
+  if(__card){ if(__card.classList.contains('tap-pending'))return; __card.classList.add('tap-pending'); }
+  try{
+    const content=await loadMathConceptContent();
+    // 진행 상태는 로그인 시 이미 캐시돼 있으므로 재조회를 기다리지 않고 화면부터 연다 — 최신값은 백그라운드로만 확인.
+    loadMathConceptProgressForName_(playerName).catch(error=>console.warn('기본개념 확인 진행 상태 백그라운드 갱신 실패:',error));
+    const eligible=getMathBasicConceptReviewUnits_(playerName).find(item=>item.unitId===unitId),unit=content.units?.[unitId];
+    if(isHomeworkPastDue_(playerName,unit?.scheduledDate||'')){showToast2('🔒 오늘 학습 시간이 종료되었습니다.');return;}
+    const basicScreen=document.getElementById('math-concept-screen');if(basicScreen)basicScreen.dataset.homeworkDueDate=unit?.scheduledDate||'';
+    if(!eligible||!unit||!Array.isArray(unit.basicConceptReview)){showToast2('아직 기본개념 확인 시간이 아니에요.');return;}
+    mathBasicReviewUnit=unit;mathBasicReviewItems=unit.basicConceptReview;const saved=eligible.progress.basicConceptReview||{};
+    const hadRecord=hasMathBasicReviewRecord_(eligible.progress),retroactive=isMathBasicReviewRetroactive_(eligible.progress,unitId,new Date(),content);
+    mathBasicReviewState={createdAt:saved.createdAt||new Date().toISOString(),createdForCompletedAt:saved.createdForCompletedAt||eligible.progress.completedAt,createdForScheduledDate:saved.createdForScheduledDate||unit.scheduledDate,createdMode:saved.createdMode||(retroactive?'retroactive':'scheduled-next-day'),completed:saved.completed===true,completedAt:saved.completedAt||null,firstCompletedAt:saved.firstCompletedAt||saved.completedAt||null,relearning:saved.relearning===true,history:[...(saved.history||[])],results:{...(saved.results||{})}};
+    // 최초 기록 저장도 화면 진입을 막지 않도록 백그라운드로 보낸다 — mathBasicReviewState는 이미 메모리에 구성되어 렌더에 필요 없음.
+    if(!hadRecord)saveMathBasicConceptReview_(playerName,unitId,mathBasicReviewState).catch(error=>console.warn('기본개념 확인 최초 기록 저장 실패:',error));
+    const current=getMathBasicReviewCurrent_();mathBasicReviewAnswer='';mathBasicReviewShowingConcept=!!(current&&mathBasicReviewState.results[current.conceptId]?.needsReview);
+    htShowOnlyScreen('math-concept-screen');renderMathBasicConceptReview_();
+  }finally{
+    if(__card)__card.classList.remove('tap-pending');
+  }
 }
 function renderMathBasicConceptReview_(){
   const root=document.getElementById('math-concept-root'),step=document.getElementById('math-step-label');if(!root||!mathBasicReviewUnit)return;
@@ -13291,13 +13317,20 @@ function renderMathCard(kicker,title,body){document.getElementById('math-concept
 async function openMathConceptLearning(unitId){
   if(!window.MathFlowV2){showToast2('⚠️ 수학 화면을 불러오지 못했어요.');return;}
   const student=STUDENTS.find(item=>item.name===playerName);if(!student)return;
-  const content=await loadMathConceptContent(),targetUnitId=unitId||getMathActiveUnitId_(student,content);
-  if(isHomeworkPastDue_(playerName,content.units?.[targetUnitId]?.scheduledDate||'')){showToast2('🔒 오늘 학습 시간이 종료되었습니다.');return;}
-  const conceptScreen=document.getElementById('math-concept-screen');if(conceptScreen)conceptScreen.dataset.homeworkDueDate=content.units?.[targetUnitId]?.scheduledDate||'';
-  await loadMathConceptProgressForName_(playerName);
-  const lock=getMathSequentialLock_(playerName,targetUnitId,content);
-  if(lock.locked){showToast2('🔒 이전 학습을 먼저 완료해 주세요');renderMathLearningCards_();return;}
-  return window.MathFlowV2.open(targetUnitId);
+  const __card=document.getElementById('math-unit-card');
+  if(__card){ if(__card.classList.contains('tap-pending'))return; __card.classList.add('tap-pending'); }
+  try{
+    const content=await loadMathConceptContent(),targetUnitId=unitId||getMathActiveUnitId_(student,content);
+    if(isHomeworkPastDue_(playerName,content.units?.[targetUnitId]?.scheduledDate||'')){showToast2('🔒 오늘 학습 시간이 종료되었습니다.');return;}
+    const conceptScreen=document.getElementById('math-concept-screen');if(conceptScreen)conceptScreen.dataset.homeworkDueDate=content.units?.[targetUnitId]?.scheduledDate||'';
+    // 진행 상태는 로그인 시 이미 캐시돼 있으므로 재조회를 기다리지 않고 화면부터 연다 — 최신값은 백그라운드로만 확인.
+    loadMathConceptProgressForName_(playerName).catch(error=>console.warn('수학개념학습 진행 상태 백그라운드 갱신 실패:',error));
+    const lock=getMathSequentialLock_(playerName,targetUnitId,content);
+    if(lock.locked){showToast2('🔒 이전 학습을 먼저 완료해 주세요');renderMathLearningCards_();return;}
+    return await window.MathFlowV2.open(targetUnitId);
+  }finally{
+    if(__card)__card.classList.remove('tap-pending');
+  }
 }
 function closeMathConceptLearning(){const r=window.MathFlowV2?.close();updateProgressColors();return r;}
 function renderMathPhase(){

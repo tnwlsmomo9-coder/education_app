@@ -5,7 +5,7 @@
 <!-- app.js/learning-content.js는 아래에서 rAF 이후 동적으로 <script> 삽입되어 실행되지만,
      다운로드 자체는 여기서 미리 시작해두면 두 파일이 순차가 아니라 병렬로 받아져 초기 로딩이 빨라집니다.
      버전 쿼리(?v=...)는 실제 <script src=...> 값과 반드시 동일하게 유지해야 브라우저가 프리로드를 재사용합니다. -->
-<link rel="preload" as="script" href="app.js?v=20260901-math-fraction-input-1">
+<link rel="preload" as="script" href="app.js?v=20260902-learning-entry-speed-1">
 <link rel="preload" as="script" href="learning-content.js?v=20260825-content-19">
 <link rel="preload" as="script" href="math-flow-v2.js?v=20260901-flow-11">
 <script src="math-flow-v2.js?v=20260901-flow-11"></script>
@@ -777,6 +777,8 @@ border-radius:50%;background:linear-gradient(135deg,rgba(61,123,245,0.14),rgba(6
   .unit-card.unit-passed .unit-pass-overlay{display:flex}
   .unit-card.done .unit-title::after{content:' ✅';font-size:10px}
   .unit-card.partial{background:rgba(255,183,3,0.08)}
+  .unit-card.tap-pending{opacity:.72;pointer-events:none}
+  .unit-card.tap-pending::after{content:'여는 중…';position:absolute;right:14px;bottom:10px;font-size:11px;font-weight:800;color:var(--neutral-text-secondary)}
   .unit-card.partial .unit-title::after{content:' ◐';font-size:10px;color:#C98A00}
   .unit-card.done.active,.unit-card.partial.active{box-shadow:0 4px 18px rgba(61,123,245,0.22)}
   .unit-icon{width:46px;height:46px;border-radius:var(--radius-md);background:linear-gradient(135deg,rgba(61,123,245,0.16),rgba(61,123,245,0.06));display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:22px}
@@ -4529,7 +4531,7 @@ h1,h2,h3,.title-label{
 
 <script>
 (()=>{
-  const APP_SCRIPT_URL='app.js?v=20260901-math-fraction-input-1';
+  const APP_SCRIPT_URL='app.js?v=20260902-learning-entry-speed-1';
   window.__APP_SCRIPT_URL=APP_SCRIPT_URL; // 디버그 로그(app.js __perfMark)가 실제 로드 버전을 하드코딩 없이 참조하도록 노출
   window.__appMainReady=false;
   window.__pendingShellStudent='';
