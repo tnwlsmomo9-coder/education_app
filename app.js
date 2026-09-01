@@ -5899,14 +5899,88 @@ function updateDeveloperTestModeUI(){
   if(banner)banner.classList.toggle('show',developerTestMode);
 }
 
+const numericKeypadState_={};
+function numericKeypadHtml_(scope){
+  const digitButton=digit=>`<button type="button" class="numeric-keypad-btn" data-keypad-digit="${digit}" onclick="handleNumericKeypad_('${scope}','${digit}')">${digit}</button>`;
+  return `${[1,2,3,4,5,6,7,8,9].map(digitButton).join('')}<span class="numeric-keypad-spacer" aria-hidden="true"></span>${digitButton(0)}<button type="button" class="numeric-keypad-btn numeric-keypad-delete" onclick="handleNumericKeypad_('${scope}','delete')">지우기</button>`;
+}
+function mountNumericKeypad_(scope){
+  document.querySelectorAll(`[data-keypad-scope="${scope}"]`).forEach(el=>{el.innerHTML=numericKeypadHtml_(scope);});
+}
+function numericKeypadConfig_(scope){
+  if(scope==='student'){
+    const step=numericKeypadState_.student?.step===2?2:1;
+    return {length:4,inputId:pinMode==='create'&&step===2?'pin-create-input2':pinMode==='create'?'pin-create-input1':'pin-verify-input',overlayId:'name-confirm-overlay',errorId:'pin-error'};
+  }
+  return ({
+    adminLogin:{length:4,inputId:'admin-login-input',overlayId:'admin-login-overlay',errorId:'admin-login-error'},
+    teacher:{length:4,inputId:'pw-input',overlayId:'pw-overlay',errorId:'pw-error'},
+    adminExit:{length:4,inputId:'admin-exit-input',overlayId:'admin-exit-overlay',errorId:'admin-exit-error'},
+    developerTest:{length:4,inputId:'developer-test-login-input',overlayId:'developer-test-login-overlay',errorId:'developer-test-login-error'}
+  })[scope]||null;
+}
+function setNumericKeypadBusy_(scope,busy){
+  const state=numericKeypadState_[scope]||(numericKeypadState_[scope]={step:1,inFlight:false});
+  state.inFlight=busy===true;
+  document.querySelectorAll(`[data-keypad-scope="${scope}"] button`).forEach(button=>{button.disabled=state.inFlight;});
+}
+function resetNumericKeypad_(scope,clearError=true){
+  const state=numericKeypadState_[scope]||(numericKeypadState_[scope]={step:1,inFlight:false});
+  state.step=1;state.inFlight=false;
+  const ids=scope==='student'?['pin-verify-input','pin-create-input1','pin-create-input2']:[numericKeypadConfig_(scope)?.inputId];
+  ids.filter(Boolean).forEach(id=>{const input=document.getElementById(id);if(input)input.value='';});
+  if(scope==='student'){
+    const second=document.getElementById('pin-create-input2');if(second)second.style.display='none';
+    const stepText=document.getElementById('pin-keypad-step');if(stepText)stepText.textContent=pinMode==='create'?'새 비밀번호를 입력해주세요.':'';
+  }
+  const config=numericKeypadConfig_(scope),error=config&&document.getElementById(config.errorId);
+  if(clearError&&error)error.textContent='';
+  document.querySelectorAll(`[data-keypad-scope="${scope}"] button`).forEach(button=>{button.disabled=false;});
+}
+async function submitNumericKeypad_(scope){
+  const state=numericKeypadState_[scope]||(numericKeypadState_[scope]={step:1,inFlight:false});
+  if(state.inFlight)return;
+  setNumericKeypadBusy_(scope,true);
+  try{
+    if(scope==='student')await confirmPinAction();
+    else if(scope==='adminLogin')await confirmAdminLogin();
+    else if(scope==='teacher')await checkPassword();
+    else if(scope==='adminExit')await checkExitTestModePassword();
+    else if(scope==='developerTest')await confirmDeveloperTestLogin();
+  }finally{
+    const config=numericKeypadConfig_(scope),overlay=config&&document.getElementById(config.overlayId);
+    if(overlay&&overlay.classList.contains('show'))resetNumericKeypad_(scope,false);
+    else setNumericKeypadBusy_(scope,false);
+  }
+}
+function handleNumericKeypad_(scope,key){
+  const state=numericKeypadState_[scope]||(numericKeypadState_[scope]={step:1,inFlight:false});
+  if(state.inFlight)return;
+  const config=numericKeypadConfig_(scope),input=config&&document.getElementById(config.inputId);
+  if(!input)return;
+  if(key==='delete'){input.value=input.value.slice(0,-1);return;}
+  if(!/^\d$/.test(String(key))||input.value.length>=config.length)return;
+  input.value+=String(key);
+  if(input.value.length!==config.length)return;
+  if(scope==='student'&&pinMode==='create'&&state.step===1){
+    state.step=2;
+    const second=document.getElementById('pin-create-input2');if(second)second.style.display='block';
+    const stepText=document.getElementById('pin-keypad-step');if(stepText)stepText.textContent='확인을 위해 한 번 더 입력해주세요.';
+    return;
+  }
+  submitNumericKeypad_(scope);
+}
+window.handleNumericKeypad_=handleNumericKeypad_;
+onAppDomReady_(()=>['adminLogin','teacher','adminExit','developerTest'].forEach(mountNumericKeypad_));
+
 function openDeveloperTestLogin(){
   const overlay=document.getElementById('developer-test-login-overlay');
   const input=document.getElementById('developer-test-login-input');
   const error=document.getElementById('developer-test-login-error');
   if(error)error.textContent='';
   if(input)input.value='';
+  resetNumericKeypad_('developerTest');
   if(overlay)overlay.classList.add('show');
-  setTimeout(()=>input&&input.focus(),100);
 }
 
 function closeDeveloperTestLogin(){
@@ -6021,12 +6095,6 @@ onAppDomReady_(()=>{
     button.addEventListener('click',event=>{
       event.preventDefault();
       event.stopPropagation();
-    });
-  }
-  const input=document.getElementById('developer-test-login-input');
-  if(input){
-    input.addEventListener('keydown',event=>{
-      if(event.key==='Enter')confirmDeveloperTestLogin();
     });
   }
 });
@@ -6508,12 +6576,9 @@ function openAdminLogin(){
 
   if(error) error.textContent='';
   if(input) input.value='';
+  resetNumericKeypad_('adminLogin');
   setPrivilegedAuthOverlayOpen_(true);
   if(overlay) overlay.classList.add('show');
-
-  setTimeout(()=>{
-    if(input) input.focus();
-  },100);
 }
 
 function closeAdminLogin(){
@@ -6581,6 +6646,7 @@ async function confirmAdminLogin(){
 function requestExitTestMode(){
   document.getElementById('admin-exit-input').value='';
   document.getElementById('admin-exit-error').textContent='';
+  resetNumericKeypad_('adminExit');
   document.getElementById('admin-exit-overlay').classList.add('show');
 }
 
@@ -6754,18 +6820,19 @@ async function requestSelectStudent(card,name,triggerEl){
     window.__perfMark&&window.__perfMark('기존PIN입력창표시');
     document.getElementById('name-confirm-text').textContent=name+' 맞나요?';
     document.getElementById('name-confirm-desc').innerHTML='본인의 4자리 비밀번호를 입력해주세요.';
-    document.getElementById('pin-input-area').innerHTML=`<input type="password" inputmode="numeric" maxlength="4" id="pin-verify-input" class="pw-input" placeholder="비밀번호 4자리"/>`;
-    document.getElementById('pin-confirm-btn').textContent='확인';
+    document.getElementById('pin-input-area').innerHTML=`<input type="password" inputmode="none" maxlength="4" id="pin-verify-input" class="pw-input" placeholder="비밀번호 4자리" readonly autocomplete="off"/><div id="pin-keypad-step" class="numeric-pin-step"></div><div class="numeric-keypad" data-keypad-scope="student"></div>`;
   }else{
     pinMode='create';
     window.__perfMark&&window.__perfMark('신규PIN생성창표시');
     document.getElementById('name-confirm-text').textContent=name+' 맞나요?';
     document.getElementById('name-confirm-desc').innerHTML='처음이시네요! 나만 아는 <b style="color:var(--ash)">4자리 비밀번호</b>를 만들어주세요.<br>다음부터 이름 누르면 이 비밀번호로 확인해요.';
     document.getElementById('pin-input-area').innerHTML=`
-      <input type="password" inputmode="numeric" maxlength="4" id="pin-create-input1" class="pw-input" placeholder="새 비밀번호 4자리" style="margin-bottom:8px"/>
-      <input type="password" inputmode="numeric" maxlength="4" id="pin-create-input2" class="pw-input" placeholder="비밀번호 다시 입력"/>`;
-    document.getElementById('pin-confirm-btn').textContent='만들기';
+      <input type="password" inputmode="none" maxlength="4" id="pin-create-input1" class="pw-input" placeholder="새 비밀번호 4자리" readonly autocomplete="off"/>
+      <input type="password" inputmode="none" maxlength="4" id="pin-create-input2" class="pw-input" placeholder="비밀번호 다시 입력" readonly autocomplete="off" style="display:none"/>
+      <div id="pin-keypad-step" class="numeric-pin-step">새 비밀번호를 입력해주세요.</div><div class="numeric-keypad" data-keypad-scope="student"></div>`;
   }
+  mountNumericKeypad_('student');
+  resetNumericKeypad_('student');
   document.getElementById('name-confirm-overlay').classList.add('show');
   document.getElementById('name-confirm-overlay').style.display='flex';
   __a11yDialogOpened_('name-confirm-overlay',triggerEl||card,closeNameConfirm);
@@ -7018,9 +7085,9 @@ function showTeacher(){
   __cancelPendingBackgroundLoads(); // 선생님확인창 열림 — 대기 중인 백그라운드 조회 취소
   document.getElementById('pw-error').textContent='';
   document.getElementById('pw-input').value='';
+  resetNumericKeypad_('teacher');
   setPrivilegedAuthOverlayOpen_(true);
   document.getElementById('pw-overlay').classList.add('show');
-  setTimeout(()=>document.getElementById('pw-input').focus(),100);
 }
 
 // ===== 사건 배열하기 게임 =====
@@ -10372,8 +10439,6 @@ function closePwModal(){
   setPrivilegedAuthOverlayOpen_(false);
   __releasePrivilegedAuthGate_(window.__privilegedAuthGateState.epoch);
 }
-
-document.getElementById('pw-input').addEventListener('keydown',e=>{if(e.key==='Enter')checkPassword();});
 
 async function checkPassword(){
   window.__perfMark&&window.__perfMark('선생님 비밀번호확인 클릭');
