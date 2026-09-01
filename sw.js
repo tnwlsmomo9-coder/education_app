@@ -1,7 +1,7 @@
-const CACHE_NAME = 'samguk-culture-quiz-v61-app-cache-refresh';
+const CACHE_NAME = 'samguk-culture-quiz-v62-midnight-lock-refresh';
 const ASSETS = [
   './index.html',
-  './app.js?v=20260902-learning-entry-speed-2',
+  './app.js?v=20260902-learning-entry-speed-3',
   './math-flow-v2.js?v=20260901-flow-11',
   './learning-content.js?v=20260825-content-19',
   './math-content.js?v=20260901-math-5',

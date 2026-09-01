@@ -419,6 +419,35 @@ function apiConfigured(){
 const CONTENT_VISIBILITY_STORAGE_KEY='contentVisibility_v1';
 const KING_ORDER_DUE_LABEL='빨리해라';
 let contentVisibilityCache=null;
+const MATH_LEARNING_ACCESS_TYPES=[
+  {key:'concept',label:'수학개념학습'},
+  {key:'basicReview',label:'기본개념 확인'},
+  {key:'conceptReview',label:'개념복습학습'},
+  {key:'unitQuiz',label:'수학 단원 퀴즈'},
+  {key:'wrongPractice',label:'오답연습'}
+];
+
+function mathLearningAccessRawKey_(name,unitId,learningType){return `${encodeURIComponent(String(name||''))}:${String(unitId||'')}:${String(learningType||'')}`;}
+function mathLearningAccessItemKey_(name,unitId,learningType){return contentVisibilityItemKey('mathAccess',mathLearningAccessRawKey_(name,unitId,learningType));}
+function isMathLearningAccessOpen_(name,unitId,learningType){
+  if(!name||!unitId||!learningType)return true;
+  const map=contentVisibilityCache||readLocalContentVisibility();
+  return map[mathLearningAccessItemKey_(name,unitId,learningType)]!==false;
+}
+function isMathLearningAccessBlocked_(name,unitId,learningType){
+  if(isAdminSessionActive()||isDeveloperTestMode()||parentChildViewActive||viewerModeActive)return false;
+  return !isMathLearningAccessOpen_(name,unitId,learningType);
+}
+function blockMathLearningAccess_(name,unitId,learningType){
+  if(!isMathLearningAccessBlocked_(name,unitId,learningType))return false;
+  showToast2('🔒 선생님이 잠근 수학 학습입니다.');
+  return true;
+}
+function mathAccessTypeForResumeTarget_(target){
+  return ({mathConcept:'concept',mathBasicConceptReview:'basicReview',mathConceptReviewLearning:'conceptReview',mathWrongPractice:'wrongPractice'})[target?.type]||'';
+}
+window.isMathLearningAccessBlocked_=isMathLearningAccessBlocked_;
+window.blockMathLearningAccess_=blockMathLearningAccess_;
 
 // 새 문제 묶음은 이전의 빈 단원 공개값을 물려받지 않고 다시 승인하도록
 // 공개 설정 키를 버전별로 분리합니다. 관리자가 공개 버튼을 누르면 이후에는 그 설정을 유지합니다.
@@ -579,6 +608,13 @@ function getCurrentContentVisibilitySeed(){
         : false;
     });
   }
+  const mathContent=window.MATH_CONTENT||window.MATH_CONCEPT_CONTENT;
+  STUDENTS.forEach(student=>{
+    const mathUnitIds=mathContent?getMathUnitIds_(student,mathContent):(student.mathUnitId?[student.mathUnitId]:[]);
+    mathUnitIds.forEach(unitId=>MATH_LEARNING_ACCESS_TYPES.forEach(type=>{
+    seed[mathLearningAccessItemKey_(student.name,unitId,type.key)]=true;
+    }));
+  });
   return seed;
 }
 
@@ -602,10 +638,11 @@ function normalizeContentVisibility(payload){
   return out;
 }
 
-async function apiGetContentVisibility(){
+async function apiGetContentVisibility(forceFresh=false){
   if(!apiConfigured())return {};
   try{
-    const res=await fetch(API_URL+'?action=getContentVisibility',{cache:'no-store'});
+    const cacheBust=forceFresh?'&_='+Date.now():'';
+    const res=await fetch(API_URL+'?action=getContentVisibility'+cacheBust,{cache:'no-store'});
     const payload=await res.json();
     if(!res.ok||!payload||payload.ok===false)return {};
     return normalizeContentVisibility(payload);
@@ -692,6 +729,46 @@ async function setAllContentApproved(approved){
   showToast2(ok
     ?(approved?'✅ 전체 문제를 공개했어요.':'🔒 전체 문제를 비공개했어요.')
     :'⚠️ 이 기기에는 반영됐지만 서버 저장은 되지 않았어요.');
+}
+
+async function setMathLearningAccess_(name,unitId,learningType,open){
+  const previousMap={...(contentVisibilityCache||readLocalContentVisibility())};
+  const map={...previousMap};
+  map[mathLearningAccessItemKey_(name,unitId,learningType)]=open===true;
+  contentVisibilityCache=map;
+  try{localStorage.setItem(CONTENT_VISIBILITY_STORAGE_KEY,JSON.stringify(map));}catch(error){}
+  renderContentApprovalPanel();
+  if(playerName===name)renderMathLearningCards_();
+  const saved=await apiSetContentVisibility(map);
+  if(!saved){contentVisibilityCache=previousMap;try{localStorage.setItem(CONTENT_VISIBILITY_STORAGE_KEY,JSON.stringify(previousMap));}catch(error){}renderContentApprovalPanel();if(playerName===name)renderMathLearningCards_();showToast2('⚠️ 서버 저장에 실패해 이전 상태로 되돌렸어요.');return false;}
+  __invalidateReadCache('getContentVisibility');
+  const server=await apiGetContentVisibility(true);
+  const itemKey=mathLearningAccessItemKey_(name,unitId,learningType),matches=Object.keys(server).length>0&&server[itemKey]===open;
+  if(!matches){contentVisibilityCache=Object.keys(server).length?{...getCurrentContentVisibilitySeed(),...server}:previousMap;try{localStorage.setItem(CONTENT_VISIBILITY_STORAGE_KEY,JSON.stringify(contentVisibilityCache));}catch(error){}renderContentApprovalPanel();if(playerName===name)renderMathLearningCards_();showToast2('⚠️ 서버 재확인 값이 달라 서버 상태로 되돌렸어요.');return false;}
+  contentVisibilityCache={...getCurrentContentVisibilitySeed(),...server};
+  try{localStorage.setItem(CONTENT_VISIBILITY_STORAGE_KEY,JSON.stringify(contentVisibilityCache));}catch(error){}
+  renderContentApprovalPanel();
+  if(playerName===name)renderMathLearningCards_();
+  showToast2(open?'✅ 수학 학습을 열었어요.':'🔒 수학 학습을 잠갔어요.');
+  return true;
+}
+
+function renderMathLearningAccessAdmin_(){
+  const content=window.MATH_CONTENT||window.MATH_CONCEPT_CONTENT;
+  return STUDENTS.map(student=>{
+    const unitIds=content?getMathUnitIds_(student,content):(student.mathUnitId?[student.mathUnitId]:[]);
+    return `<div class="content-approval-group">
+    <div class="content-approval-group-title">➗ ${student.name} · 수학 학습</div>
+    ${unitIds.map(unitId=>{
+      const unit=content?.units?.[unitId],title=unit?.title||MATH_BASIC_REVIEW_UNIT_TITLES?.[unitId]||unitId;
+      return `<div class="content-approval-row"><div class="content-approval-label" style="margin-bottom:7px">${mathEscape(title)}</div>
+        <div style="display:flex;flex-direction:column;gap:6px">${MATH_LEARNING_ACCESS_TYPES.map(type=>{
+          const open=isMathLearningAccessOpen_(student.name,unitId,type.key);
+          return `<div class="content-approval-row-main"><span class="content-approval-label">${type.label}</span><button type="button" class="content-approval-switch ${open?'open':'closed'}" aria-label="${type.label} 현재 ${open?'열림':'잠김'}" title="현재 상태: ${open?'열림':'잠김'}" onclick="setMathLearningAccess_('${student.name}','${unitId}','${type.key}',${open?'false':'true'})">${open?'열림':'잠김'}</button></div>`;
+        }).join('')}</div></div>`;
+    }).join('')}
+  </div>`;
+  }).join('');
 }
 
 // ══════════════════════════════════════════
@@ -852,8 +929,8 @@ function renderContentApprovalPanel(){
   const map=contentVisibilityCache||readLocalContentVisibility();
   const reqMap=contentRequirementCache||readLocalContentRequirement();
   body.innerHTML=getContentApprovalGroups().map(group=>`
-    <div class="content-approval-group">
-      <div class="content-approval-group-title">${group.title}</div>
+    <details class="content-approval-group">
+      <summary class="content-approval-group-title" style="cursor:pointer">${group.title}</summary>
       ${group.items.map(item=>{
         const approved=map[contentVisibilityItemKey(item.type,item.key)]===true;
         const itemKey=contentVisibilityItemKey(item.type,item.key);
@@ -880,8 +957,8 @@ function renderContentApprovalPanel(){
           </div>
         </div>`;
       }).join('')}
-    </div>
-  `).join('')+`
+    </details>
+  `).join('')+renderMathLearningAccessAdmin_()+`
     <div class="content-approval-actions">
       <button type="button" onclick="setAllContentApproved(true)" style="background:rgba(52,199,123,.15);color:#15834a">전체 공개</button>
       <button type="button" onclick="setAllContentApproved(false)" style="background:rgba(110,120,140,.15);color:#596273">전체 비공개</button>
@@ -1602,7 +1679,11 @@ function restoreAfterMidnightAccessCache_(){
   try{
     const cached=JSON.parse(localStorage.getItem(AFTER_MIDNIGHT_ACCESS_CACHE_KEY)||'null'),data=cached?.data;
     if(!data||typeof data.allowed!=='object')return false;
-    afterMidnightAccessState={loaded:true,serverNowMs:Number(data.serverNowMs)||0,receivedAtMs:Date.now(),serverKstDate:data.serverKstDate||'',allowed:data.allowed||{}};return true;
+    // savedAt(캐시 저장 시각)을 receivedAtMs로 써야 trustedServerNowMs_()가 "저장 이후 흐른 시간"만큼 앞으로 추정한다.
+    // 여기를 Date.now()로 두면 캐시에 담긴 serverNowMs가 그대로 "지금"으로 고정돼, 자정 전 캐시로 자정 이후 재실행 시
+    // 새 서버 응답이 오기 전까지 계속 "어제"로 판정되는 버그가 있었다.
+    const savedAt=Number(cached.savedAt)||Date.now();
+    afterMidnightAccessState={loaded:true,serverNowMs:Number(data.serverNowMs)||0,receivedAtMs:savedAt,serverKstDate:data.serverKstDate||'',allowed:data.allowed||{}};return true;
   }catch(error){return false;}
 }
 function writeAfterMidnightAccessCache_(){
@@ -1614,29 +1695,64 @@ let midnightLockForceTest=false;
 try{midnightLockForceTest=sessionStorage.getItem(MIDNIGHT_LOCK_FORCE_TEST_KEY)==='1';}catch(error){}
 function trustedServerNowMs_(){return afterMidnightAccessState.serverNowMs?afterMidnightAccessState.serverNowMs+(Date.now()-afterMidnightAccessState.receivedAtMs):0;}
 function kstDateFromMs_(ms){if(!ms)return '';return new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Seoul',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date(ms));}
-async function apiGetAfterMidnightHomeworkAccess(){
+function kstHourFromMs_(ms){
+  if(!Number.isFinite(Number(ms)))return -1;
+  const hourPart=new Intl.DateTimeFormat('en-US',{timeZone:'Asia/Seoul',hour:'2-digit',hourCycle:'h23'}).formatToParts(new Date(Number(ms))).find(part=>part.type==='hour');
+  return hourPart?Number(hourPart.value):-1;
+}
+async function apiGetAfterMidnightHomeworkAccess(forceFresh=false){
   if(!apiConfigured())return false;
-  try{const res=await fetch(API_URL+'?action=getAfterMidnightHomeworkAccess',{cache:'no-store'}),data=await res.json();if(!data?.ok)return false;
+  try{const cacheBust=forceFresh?'&_='+Date.now():'';const res=await fetch(API_URL+'?action=getAfterMidnightHomeworkAccess'+cacheBust,{cache:'no-store'}),data=await res.json();if(!res.ok||!data?.ok)return false;
     const previous=JSON.stringify(afterMidnightAccessState.allowed||{});
     afterMidnightAccessState={loaded:true,serverNowMs:Date.parse(data.serverNow)||0,receivedAtMs:Date.now(),serverKstDate:data.serverKstDate||'',allowed:data.allowed||{}};
     writeAfterMidnightAccessCache_();
-    if(previous!==JSON.stringify(afterMidnightAccessState.allowed||{}))renderAfterMidnightAccessAdmin_();
+    if(previous!==JSON.stringify(afterMidnightAccessState.allowed||{})){
+      renderAfterMidnightAccessAdmin_();
+      if(playerName&&!isAdminSessionActive()&&!isDeveloperTestMode()&&!parentChildViewActive&&!viewerModeActive){
+        renderHomeSummaryCard();
+        renderIncompleteUnitsSection();
+        renderMathLearningCards_();
+      }
+    }
     return true;
   }catch(error){markServerReadFailure_();console.warn('자정 학습 잠금 조회 실패:',error);return false;}
 }
 async function apiSetAfterMidnightHomeworkAccess(name,enabled){
   if(!apiConfigured())return false;
   try{const body=new URLSearchParams();body.set('action','setAfterMidnightHomeworkAccess');body.set('token',adminToken||'');body.set('name',name);body.set('enabled',enabled?'true':'false');
-    const res=await fetch(API_URL,{method:'POST',body}),data=await res.json();handleAdminUnauthorized_(data);if(!data?.ok)return false;__invalidateReadCache('getAfterMidnightHomeworkAccess');await apiGetAfterMidnightHomeworkAccess();return true;
+    const res=await fetch(API_URL,{method:'POST',body}),data=await res.json();handleAdminUnauthorized_(data);if(!res.ok||!data?.ok)return false;
+    __invalidateReadCache('getAfterMidnightHomeworkAccess');
+    const refreshed=await apiGetAfterMidnightHomeworkAccess(true);
+    if(!refreshed)return false;
+    const today=kstDateFromMs_(currentTrustedNowMs_())||afterMidnightAccessState.serverKstDate;
+    const matches=name==='__ALL__'
+      ?STUDENTS.every(student=>(afterMidnightAccessState.allowed?.[student.name]===today)===enabled)
+      :(afterMidnightAccessState.allowed?.[name]===today)===enabled;
+    if(!matches){console.warn('자정 학습 예외 저장 후 서버 재조회 값 불일치:',{name,enabled});return false;}
+    return true;
   }catch(error){console.warn('자정 학습 예외 저장 실패:',error);return false;}
 }
-function isAfterMidnightExceptionAllowed_(name){const today=kstDateFromMs_(trustedServerNowMs_());return !!(name&&today&&afterMidnightAccessState.allowed?.[name]===today);}
+// 서버 확정 시각이 아직 없으면(첫 로딩 중/조회 실패) 잠금을 통째로 꺼버리는 대신
+// 기기 로컬 시계를 Asia/Seoul 기준으로 즉시 사용한다 — 서버 값이 도착하면 자동으로 그쪽이 우선된다.
+function currentTrustedNowMs_(){return afterMidnightAccessState.loaded?trustedServerNowMs_():Date.now();}
+function isAfterMidnightExceptionAllowed_(name,nowMs=currentTrustedNowMs_()){const today=kstDateFromMs_(nowMs);return !!(name&&today&&afterMidnightAccessState.allowed?.[name]===today);}
 function isMidnightLockForceTestActive_(){return midnightLockForceTest===true&&(isAdminSessionActive()||isDeveloperTestMode());}
+function shouldLockStudentLearningAt_(nowMs,allowedDate=''){
+  const kstHour=kstHourFromMs_(nowMs),today=kstDateFromMs_(nowMs);
+  return kstHour>=0&&kstHour<6&&allowedDate!==today;
+}
+function isStudentLearningLockedAt_(name,nowMs=currentTrustedNowMs_()){
+  // 관리자·선생님·테스트·부모 미리보기는 학생 학습 잠금 대상이 아니다.
+  if(!name||isAdminSessionActive()||isDeveloperTestMode()||parentChildViewActive||viewerModeActive)return false;
+  return shouldLockStudentLearningAt_(nowMs,afterMidnightAccessState.allowed?.[name]||'');
+}
 function isHomeworkPastDue_(name,dueDate){
-  if(!dueDate||!afterMidnightAccessState.loaded||isAfterMidnightExceptionAllowed_(name))return false;
-  if(isMidnightLockForceTestActive_())return true;
-  if(isAdminSessionActive()||isDeveloperTestMode())return false;
-  return kstDateFromMs_(trustedServerNowMs_())>String(dueDate);
+  return isStudentLearningLockedAt_(name,currentTrustedNowMs_());
+}
+function blockStudentLearningEntry_(name=playerName,nowMs=currentTrustedNowMs_()){
+  if(!isStudentLearningLockedAt_(name,nowMs))return false;
+  showToast2('🔒 오늘 학습 시간이 종료되었습니다.');
+  return true;
 }
 function setMidnightLockForceTest_(enabled){
   if(!isAdminSessionActive()&&!isDeveloperTestMode())return false;
@@ -1648,6 +1764,8 @@ function setMidnightLockForceTest_(enabled){
   return true;
 }
 window.isMathHomeworkPastDue=function(name,dueDate){return isHomeworkPastDue_(name,dueDate);};
+window.__studentLearningLockTest={isLockedAt:isStudentLearningLockedAt_,shouldLockAt:shouldLockStudentLearningAt_,kstHourFromMs:kstHourFromMs_};
+window.blockStudentLearningEntry_=blockStudentLearningEntry_;
 function blockExpiredHomeworkStep_(dueDate){if(!isHomeworkPastDue_(playerName,dueDate))return false;showToast2('🔒 오늘 학습 시간이 종료되었습니다.');return true;}
 document.addEventListener('click',function(event){
   const screen=event.target?.closest?.('#math-concept-screen,#quiz-screen');if(!screen)return;
@@ -2206,6 +2324,7 @@ function renderDetailedMap(includeNames=false){
 }
 
 function openMapStudyLearn(partId){
+  if(blockStudentLearningEntry_())return;
   if(!isContentApproved('mapStudy',partId)){
     showToast2('선생님이 아직 공개하지 않은 학습입니다.');
     return;
@@ -2386,6 +2505,7 @@ async function showMapStudyList(){
 }
 
 function startMapStudyPart(partId,fromLearn=false){
+  if(blockStudentLearningEntry_())return;
   if(!isContentApproved('mapStudy',partId)){
     showToast2('선생님이 아직 공개하지 않은 학습입니다.');
     return;
@@ -3913,7 +4033,7 @@ function renderIncompleteUnitsSection(){
     const isReview = rt.type==='unit' && !!UNITS[rt.unitKey]?.examMode;
     const progressLike={percent:n.percent, status:n.status, completed:false, resumeTarget:rt};
     const isMathSequential=n.moduleKey==='mathConcept'||n.moduleKey==='mathBasicConceptReview'||n.moduleKey==='mathConceptReviewLearning',sequenceNumber=isMathSequential?++mathSequenceNumber:0;
-    const dueDate=getHomeworkDueDateForTarget_(rt),midnightLocked=isHomeworkPastDue_(playerName,dueDate),locked=midnightLocked||(isMathSequential&&n.locked===true),lockMessage=midnightLocked?'오늘 학습 시간이 종료되었습니다.':(n.lockMessage||'이전 학습 완료 후 가능'),buttonLabel=locked?lockMessage:(isMathSequential?'학습하기':(rt.type==='unit'?'바로 시작':(getResumeButtonLabel(progressLike)||'이어하기')));
+    const dueDate=getHomeworkDueDateForTarget_(rt),midnightLocked=isHomeworkPastDue_(playerName,dueDate),mathAccessType=mathAccessTypeForResumeTarget_(rt),teacherMathLocked=!!(mathAccessType&&!isMathLearningAccessOpen_(playerName,rt.unitId||rt.unitKey||'',mathAccessType)),locked=midnightLocked||teacherMathLocked||(isMathSequential&&n.locked===true),lockMessage=midnightLocked?'오늘 학습 시간이 종료되었습니다.':teacherMathLocked?'선생님이 잠근 학습입니다.':(n.lockMessage||'이전 학습 완료 후 가능'),buttonLabel=locked?lockMessage:(isMathSequential?'학습하기':(rt.type==='unit'?'바로 시작':(getResumeButtonLabel(progressLike)||'이어하기')));
     return `<div class="unit-card ht-incomplete-card${locked?' teacher-locked-content':''}" aria-disabled="${locked?'true':'false'}">
       <div class="unit-info">
         <div class="ht-incomplete-area">${n.area}</div>
@@ -4043,7 +4163,7 @@ const HT_ALLOWED_STEPS=['reading','transcription','quiz','firstResult','review',
 
 function openLearningResumeTarget(target){
   if(!target)return;
-  if(isHomeworkPastDue_(playerName,getHomeworkDueDateForTarget_(target))){showToast2('🔒 오늘 학습 시간이 종료되었습니다.');return;}
+  if(blockStudentLearningEntry_())return;
 
   if(target.type==='historySummary'){
     openHistorySummary1(target.summaryId||HISTORY_SUMMARY1_ID);
@@ -4121,7 +4241,7 @@ function openLearningResumeTarget(target){
   }else if(target.type==='mathBasicConceptReview'){
     openMathBasicConceptReview(target.unitId||'');
   }else if(target.type==='mathWrongPractice'){
-    openMathWrongPractice();
+    openMathWrongPractice(target.unitId||'');
   }
 }
 
@@ -4496,31 +4616,37 @@ async function renderMathLearningCards_(){
   const activeProgress=calculateMathConceptProgress(playerName);
   const activeLock=activeUnitId?getMathSequentialLock_(playerName,activeUnitId,content):{locked:false};
   const midnightLocked=isHomeworkPastDue_(playerName,activeUnit?.scheduledDate||'');
+  const conceptTeacherLocked=!isMathLearningAccessOpen_(playerName,activeUnitId,'concept');
+  const quizTeacherLocked=!isMathLearningAccessOpen_(playerName,activeUnitId,'unitQuiz');
+  const wrongTeacherLocked=!isMathLearningAccessOpen_(playerName,activeUnitId,'wrongPractice');
+  const basicTeacherLocked=!isMathLearningAccessOpen_(playerName,activeUnitId,'basicReview');
+  const reviewTeacherLocked=!isMathLearningAccessOpen_(playerName,activeUnitId,'conceptReview');
   const activeCard=document.getElementById('math-unit-card');
   if(activeCard){
     activeCard.classList.toggle('math-completed',!!activeProgress.completed);
     activeCard.classList.toggle('math-incomplete',activeProgress.includeInOverall!==false&&!activeProgress.completed);
-    activeCard.classList.toggle('teacher-locked-content',activeLock.locked||midnightLocked);
-    activeCard.setAttribute('aria-disabled',activeLock.locked||midnightLocked?'true':'false');
+    activeCard.classList.toggle('teacher-locked-content',activeLock.locked||midnightLocked||conceptTeacherLocked);
+    activeCard.setAttribute('aria-disabled',activeLock.locked||midnightLocked||conceptTeacherLocked?'true':'false');
   }
   const title=document.getElementById('math-active-unit-title'),sub=document.getElementById('math-active-unit-sub');
   if(title)title.textContent=activeUnit?activeUnit.title:'수학개념학습';
-  if(sub)sub.textContent=activeUnit?((activeUnit.gradeLabel||'')+' · '+(midnightLocked?'오늘 학습 시간이 종료되었습니다.':activeLock.locked?'이전 학습을 먼저 완료해 주세요':(activeProgress.completed?'완료 · 다시 학습하기':'선수개념부터 차근차근 이해하기'))):'콘텐츠 준비 중';
+  if(sub)sub.textContent=activeUnit?((activeUnit.gradeLabel||'')+' · '+(midnightLocked?'오늘 학습 시간이 종료되었습니다.':conceptTeacherLocked?'선생님이 잠근 학습입니다.':activeLock.locked?'이전 학습을 먼저 완료해 주세요':(activeProgress.completed?'완료 · 다시 학습하기':'선수개념부터 차근차근 이해하기'))):'콘텐츠 준비 중';
+  if(sub&&activeUnit&&quizTeacherLocked&&!midnightLocked&&!conceptTeacherLocked)sub.textContent+=' · 단원 퀴즈 잠김';
   const wrongSub=document.getElementById('math-wrong-practice-sub');
   const wrongCard=document.getElementById('math-wrong-practice-card');
   const wrongCount=getMathWrongPracticeItems_(playerName).length,resolvedWrongCount=getResolvedMathWrongPracticeItems_(playerName).length;
-  if(wrongSub)wrongSub.textContent=midnightLocked?'오늘 학습 시간이 종료되었습니다.':wrongCount?`${wrongCount}문제 남음`:resolvedWrongCount?'완료 · 다시 학습하기':'등록된 오답이 없어요';
-  if(wrongCard){wrongCard.classList.toggle('math-completed',wrongCount===0&&resolvedWrongCount>0);wrongCard.classList.toggle('teacher-locked-content',midnightLocked);wrongCard.setAttribute('aria-disabled',midnightLocked?'true':'false');}
+  if(wrongSub)wrongSub.textContent=midnightLocked?'오늘 학습 시간이 종료되었습니다.':wrongTeacherLocked?'선생님이 잠근 학습입니다.':wrongCount?`${wrongCount}문제 남음`:resolvedWrongCount?'완료 · 다시 학습하기':'등록된 오답이 없어요';
+  if(wrongCard){wrongCard.classList.toggle('math-completed',wrongCount===0&&resolvedWrongCount>0);wrongCard.classList.toggle('teacher-locked-content',midnightLocked||wrongTeacherLocked);wrongCard.setAttribute('aria-disabled',midnightLocked||wrongTeacherLocked?'true':'false');}
   const basicCard=document.getElementById('math-basic-review-card'),basicTitle=document.getElementById('math-basic-review-title'),basicSub=document.getElementById('math-basic-review-sub');
   const basicUnit=getMathBasicConceptReviewUnits_(playerName).find(item=>item.unitId===activeUnitId),basicReady=!!basicUnit,basicCompleted=basicUnit?.completed===true;
   if(basicTitle)basicTitle.textContent=activeUnit?`기본개념 확인 · ${activeUnit.title}`:'기본개념 확인';
-  if(basicSub)basicSub.textContent=!activeUnit?'콘텐츠 준비 중':midnightLocked?'오늘 학습 시간이 종료되었습니다.':basicCompleted?'완료 · 다시 학습하기':basicReady?'미완료 · 바로 확인하기':'예정일 다음 날부터 확인할 수 있어요';
-  if(basicCard){basicCard.classList.toggle('math-completed',basicCompleted);basicCard.classList.toggle('teacher-locked-content',!basicReady||midnightLocked);basicCard.setAttribute('aria-disabled',basicReady&&!midnightLocked?'false':'true');basicCard.dataset.unitId=activeUnitId||'';}
+  if(basicSub)basicSub.textContent=!activeUnit?'콘텐츠 준비 중':midnightLocked?'오늘 학습 시간이 종료되었습니다.':basicTeacherLocked?'선생님이 잠근 학습입니다.':basicCompleted?'완료 · 다시 학습하기':basicReady?'미완료 · 바로 확인하기':'예정일 다음 날부터 확인할 수 있어요';
+  if(basicCard){basicCard.classList.toggle('math-completed',basicCompleted);basicCard.classList.toggle('teacher-locked-content',!basicReady||midnightLocked||basicTeacherLocked);basicCard.setAttribute('aria-disabled',basicReady&&!midnightLocked&&!basicTeacherLocked?'false':'true');basicCard.dataset.unitId=activeUnitId||'';}
   const reviewCard=document.getElementById('math-concept-review-card'),reviewTitle=document.getElementById('math-concept-review-title'),reviewSub=document.getElementById('math-concept-review-sub');
   const reviewProgress=pickNewerMathConceptProgress_(readMathConceptProgressWithMigration_(playerName,activeUnitId),mathConceptProgressOverviewCache[mathConceptCacheKey_(playerName,activeUnitId)]),reviewCompleted=reviewProgress?.conceptReviewLearning?.completed===true,reviewPrerequisitesDone=activeProgress.completed&&(!Array.isArray(activeUnit?.basicConceptReview)||!activeUnit.basicConceptReview.length||reviewProgress?.basicConceptReview?.completed===true)&&!activeLock.locked,reviewReady=!!(activeUnit?.conceptReviewLearning&&(reviewCompleted||reviewPrerequisitesDone));
   if(reviewTitle)reviewTitle.textContent=activeUnit?`개념복습학습 · ${activeUnit.title}`:'개념복습학습';
-  if(reviewSub)reviewSub.textContent=!activeUnit?'콘텐츠 준비 중':midnightLocked?'오늘 학습 시간이 종료되었습니다.':!reviewReady?'수학개념학습 완료 후 시작할 수 있어요':reviewCompleted?'완료 · 다시 복습하기':`${activeUnit.conceptReviewLearning.estimatedMinutes||'20~25'}분 · 문제로 충분히 복습하기`;
-  if(reviewCard){reviewCard.classList.toggle('math-completed',reviewCompleted);reviewCard.classList.toggle('teacher-locked-content',!reviewReady||midnightLocked);reviewCard.setAttribute('aria-disabled',reviewReady&&!midnightLocked?'false':'true');reviewCard.dataset.unitId=activeUnitId||'';}
+  if(reviewSub)reviewSub.textContent=!activeUnit?'콘텐츠 준비 중':midnightLocked?'오늘 학습 시간이 종료되었습니다.':reviewTeacherLocked?'선생님이 잠근 학습입니다.':!reviewReady?'수학개념학습 완료 후 시작할 수 있어요':reviewCompleted?'완료 · 다시 복습하기':`${activeUnit.conceptReviewLearning.estimatedMinutes||'20~25'}분 · 문제로 충분히 복습하기`;
+  if(reviewCard){reviewCard.classList.toggle('math-completed',reviewCompleted);reviewCard.classList.toggle('teacher-locked-content',!reviewReady||midnightLocked||reviewTeacherLocked);reviewCard.setAttribute('aria-disabled',reviewReady&&!midnightLocked&&!reviewTeacherLocked?'false':'true');reviewCard.dataset.unitId=activeUnitId||'';}
   const previousIds=getMathUnitIds_(student,content).filter(id=>id!==activeUnitId&&content.units?.[id]);
   const wrap=document.getElementById('math-previous-learning'),list=document.getElementById('math-previous-units');
   if(!wrap||!list)return;
@@ -4530,11 +4656,12 @@ async function renderMathLearningCards_(){
     const progress=pickNewerMathConceptProgress_(readMathConceptProgressWithMigration_(playerName,unitId),mathConceptProgressOverviewCache[mathConceptCacheKey_(playerName,unitId)]);
     const completed=progress?.studentKey===playerName&&progress?.unitId===unitId&&progress.completed===true;
     const lock=getMathSequentialLock_(playerName,unitId,content);
-    const conceptCard=`<div class="unit-card${completed?' math-completed':''}${lock.locked?' teacher-locked-content':''}" onclick="openMathConceptLearning('${unitId}')" role="button" tabindex="${lock.locked?'-1':'0'}" aria-disabled="${lock.locked?'true':'false'}">
+    const conceptAccessLocked=!isMathLearningAccessOpen_(playerName,unitId,'concept'),quizAccessLocked=!isMathLearningAccessOpen_(playerName,unitId,'unitQuiz'),basicAccessLocked=!isMathLearningAccessOpen_(playerName,unitId,'basicReview'),reviewAccessLocked=!isMathLearningAccessOpen_(playerName,unitId,'conceptReview');
+    const conceptCard=`<div class="unit-card${completed?' math-completed':''}${lock.locked||conceptAccessLocked?' teacher-locked-content':''}" onclick="openMathConceptLearning('${unitId}')" role="button" tabindex="${lock.locked||conceptAccessLocked?'-1':'0'}" aria-disabled="${lock.locked||conceptAccessLocked?'true':'false'}">
       <div class="unit-icon">📘</div><div class="unit-info"><div class="unit-title">${mathEscape(previousUnit.title)}</div>
-      <div class="unit-sub">${mathEscape(previousUnit.gradeLabel||'수학')} · ${lock.locked?'이전 학습을 먼저 완료해 주세요':(completed?'완료 · 다시 학습하기':'이전 학습')}</div></div></div>`;
-    const basicCard=progress?.basicConceptReview?.completed===true?`<div class="unit-card math-completed" onclick="openMathBasicConceptReview('${unitId}')"><div class="unit-icon">🧠</div><div class="unit-info"><div class="unit-title">기본개념 확인 · ${mathEscape(previousUnit.title)}</div><div class="unit-sub">완료 · 다시 학습하기</div></div></div>`:'';
-    const reviewCard=progress?.conceptReviewLearning?.completed===true?`<div class="unit-card math-completed" onclick="openMathConceptReviewLearning('${unitId}')"><div class="unit-icon">🔁</div><div class="unit-info"><div class="unit-title">개념복습학습 · ${mathEscape(previousUnit.title)}</div><div class="unit-sub">완료 · 다시 학습하기</div></div></div>`:'';
+      <div class="unit-sub">${mathEscape(previousUnit.gradeLabel||'수학')} · ${conceptAccessLocked?'선생님이 잠근 학습입니다.':lock.locked?'이전 학습을 먼저 완료해 주세요':(completed?'완료 · 다시 학습하기':'이전 학습')}${quizAccessLocked?' · 단원 퀴즈 잠김':''}</div></div></div>`;
+    const basicCard=progress?.basicConceptReview?.completed===true?`<div class="unit-card math-completed${basicAccessLocked?' teacher-locked-content':''}" onclick="openMathBasicConceptReview('${unitId}')"><div class="unit-icon">🧠</div><div class="unit-info"><div class="unit-title">기본개념 확인 · ${mathEscape(previousUnit.title)}</div><div class="unit-sub">${basicAccessLocked?'선생님이 잠근 학습입니다.':'완료 · 다시 학습하기'}</div></div></div>`:'';
+    const reviewCard=progress?.conceptReviewLearning?.completed===true?`<div class="unit-card math-completed${reviewAccessLocked?' teacher-locked-content':''}" onclick="openMathConceptReviewLearning('${unitId}')"><div class="unit-icon">🔁</div><div class="unit-info"><div class="unit-title">개념복습학습 · ${mathEscape(previousUnit.title)}</div><div class="unit-sub">${reviewAccessLocked?'선생님이 잠근 학습입니다.':'완료 · 다시 학습하기'}</div></div></div>`:'';
     return conceptCard+basicCard+reviewCard;
   }).join('');
 }
@@ -4546,6 +4673,7 @@ function openMathBasicConceptReviewForActive_(){
 }
 
 let mathWrongPracticeQueue=[];
+let mathWrongPracticeAccessUnitId='';
 let mathWrongPracticeSelected=null;
 let mathWrongPracticeFeedback=null;
 let mathWrongPracticePhase='concept';
@@ -4560,16 +4688,21 @@ function getResolvedMathWrongPracticeItems_(name){
   return items;
 }
 
-async function openMathWrongPractice(){
+async function openMathWrongPractice(unitId=''){
   if(!playerName)return;
+  if(blockStudentLearningEntry_())return;
   const __card=document.getElementById('math-wrong-practice-card');
   if(__card){ if(__card.classList.contains('tap-pending'))return; __card.classList.add('tap-pending'); }
   try{
     // 진행 상태는 로그인 시 이미 캐시돼 있으므로 재조회를 기다리지 않고 화면부터 연다 — 최신값은 백그라운드로만 확인.
     loadMathConceptProgressForName_(playerName).catch(error=>console.warn('오답연습 진행 상태 백그라운드 갱신 실패:',error));
+    mathWrongPracticeAccessUnitId=unitId||'';
     mathWrongPracticeQueue=getMathWrongPracticeItems_(playerName);
+    if(unitId)mathWrongPracticeQueue=mathWrongPracticeQueue.filter(item=>item.unitId===unitId);
+    const targetUnitId=unitId||mathWrongPracticeQueue[0]?.unitId||getMathActiveUnitId_(STUDENTS.find(s=>s.name===playerName),window.MATH_CONTENT||window.MATH_CONCEPT_CONTENT);
+    if(blockMathLearningAccess_(playerName,targetUnitId,'wrongPractice'))return;
     mathWrongPracticeReplayMode=mathWrongPracticeQueue.length===0&&getResolvedMathWrongPracticeItems_(playerName).length>0;
-    if(mathWrongPracticeReplayMode)mathWrongPracticeQueue=getResolvedMathWrongPracticeItems_(playerName);
+    if(mathWrongPracticeReplayMode)mathWrongPracticeQueue=getResolvedMathWrongPracticeItems_(playerName).filter(item=>!mathWrongPracticeAccessUnitId||item.unitId===mathWrongPracticeAccessUnitId);
     if(mathWrongPracticeQueue.length&&mathWrongPracticeQueue.every(item=>isHomeworkPastDue_(playerName,(window.MATH_CONTENT||window.MATH_CONCEPT_CONTENT)?.units?.[item.unitId]?.scheduledDate||''))){showToast2('🔒 오늘 학습 시간이 종료되었습니다.');return;}
     const wrongScreen=document.getElementById('math-concept-screen');if(wrongScreen)wrongScreen.dataset.homeworkDueDate=mathWrongPracticeQueue[0]?(window.MATH_CONTENT||window.MATH_CONCEPT_CONTENT)?.units?.[mathWrongPracticeQueue[0].unitId]?.scheduledDate||'':'';
     mathWrongPracticeSelected=null;mathWrongPracticeFeedback=null;mathWrongPracticePhase='concept';
@@ -4583,7 +4716,7 @@ async function openMathWrongPractice(){
 function renderMathWrongPractice_(){
   const root=document.getElementById('math-concept-root'),step=document.getElementById('math-step-label');
   if(!root)return;
-  if(!mathWrongPracticeReplayMode)mathWrongPracticeQueue=getMathWrongPracticeItems_(playerName);
+  if(!mathWrongPracticeReplayMode)mathWrongPracticeQueue=getMathWrongPracticeItems_(playerName).filter(item=>!mathWrongPracticeAccessUnitId||item.unitId===mathWrongPracticeAccessUnitId);
   if(step)step.textContent=mathWrongPracticeQueue.length?`${mathWrongPracticePhase==='concept'?'관련 개념 복습':'오답 문제 다시 풀기'} · ${mathWrongPracticeQueue.length}문제 남음`:'오답연습 완료';
   if(!mathWrongPracticeQueue.length){
     const replayAvailable=getResolvedMathWrongPracticeItems_(playerName).length>0;
@@ -4684,6 +4817,7 @@ function mathConceptReviewQuestionHtml_(question){
 }
 async function openMathConceptReviewLearning(unitId=''){
   if(!playerName)return;
+  if(blockStudentLearningEntry_())return;
   const __card=document.getElementById('math-concept-review-card');
   if(__card){ if(__card.classList.contains('tap-pending'))return; __card.classList.add('tap-pending'); }
   try{
@@ -4691,6 +4825,7 @@ async function openMathConceptReviewLearning(unitId=''){
     // 진행 상태는 로그인 시 이미 캐시돼 있으므로 재조회를 기다리지 않고 화면부터 연다 — 최신값은 백그라운드로만 확인.
     loadMathConceptProgressForName_(playerName).catch(error=>console.warn('개념복습학습 진행 상태 백그라운드 갱신 실패:',error));
     unitId=unitId||getMathActiveUnitId_(student,content);const unit=content.units?.[unitId],progress=pickNewerMathConceptProgress_(readMathConceptProgressWithMigration_(playerName,unitId),mathConceptProgressOverviewCache[mathConceptCacheKey_(playerName,unitId)]);
+    if(blockMathLearningAccess_(playerName,unitId,'conceptReview'))return;
     if(isHomeworkPastDue_(playerName,unit?.scheduledDate||'')){showToast2('🔒 오늘 학습 시간이 종료되었습니다.');return;}
     const reviewScreen=document.getElementById('math-concept-screen');if(reviewScreen)reviewScreen.dataset.homeworkDueDate=unit?.scheduledDate||'';
     const alreadyCompleted=progress?.conceptReviewLearning?.completed===true,basicCompleted=!Array.isArray(unit?.basicConceptReview)||!unit.basicConceptReview.length||progress?.basicConceptReview?.completed===true,priorLocked=unit?getMathSequentialLock_(playerName,unitId,content).locked:true;
@@ -4750,6 +4885,7 @@ function mathBasicReviewQuestionHtml_(question){
 }
 async function openMathBasicConceptReview(unitId){
   if(!playerName)return;
+  if(blockStudentLearningEntry_())return;
   const __card=document.getElementById('math-basic-review-card');
   if(__card){ if(__card.classList.contains('tap-pending'))return; __card.classList.add('tap-pending'); }
   try{
@@ -4757,6 +4893,7 @@ async function openMathBasicConceptReview(unitId){
     // 진행 상태는 로그인 시 이미 캐시돼 있으므로 재조회를 기다리지 않고 화면부터 연다 — 최신값은 백그라운드로만 확인.
     loadMathConceptProgressForName_(playerName).catch(error=>console.warn('기본개념 확인 진행 상태 백그라운드 갱신 실패:',error));
     const eligible=getMathBasicConceptReviewUnits_(playerName).find(item=>item.unitId===unitId),unit=content.units?.[unitId];
+    if(blockMathLearningAccess_(playerName,unitId,'basicReview'))return;
     if(isHomeworkPastDue_(playerName,unit?.scheduledDate||'')){showToast2('🔒 오늘 학습 시간이 종료되었습니다.');return;}
     const basicScreen=document.getElementById('math-concept-screen');if(basicScreen)basicScreen.dataset.homeworkDueDate=unit?.scheduledDate||'';
     if(!eligible||!unit||!Array.isArray(unit.basicConceptReview)){showToast2('아직 기본개념 확인 시간이 아니에요.');return;}
@@ -5306,13 +5443,22 @@ async function refreshHomeHeading(){
 }
 
 let homeworkMidnightRefreshTimer=null;
+let homeworkAccessRefreshTimer=null;
+async function refreshStudentHomeworkAccess_(){
+  if(!playerName||isAdminSessionActive()||isDeveloperTestMode()||parentChildViewActive||viewerModeActive)return false;
+  return apiGetAfterMidnightHomeworkAccess(true);
+}
 function scheduleHomeworkMidnightRefresh_(){
   if(homeworkMidnightRefreshTimer)clearTimeout(homeworkMidnightRefreshTimer);
   const now=trustedServerNowMs_();if(!now)return;
   const parts=new Intl.DateTimeFormat('en-US',{timeZone:'Asia/Seoul',year:'numeric',month:'numeric',day:'numeric'}).formatToParts(new Date(now)).reduce((o,p)=>(o[p.type]=p.value,o),{});
   const nextKstMidnight=Date.UTC(Number(parts.year),Number(parts.month)-1,Number(parts.day)+1)-9*3600000;
   homeworkMidnightRefreshTimer=setTimeout(async()=>{await apiGetAfterMidnightHomeworkAccess();if(playerName)renderIncompleteUnitsSection();scheduleHomeworkMidnightRefresh_();},Math.max(1000,nextKstMidnight-now+250));
+  if(!homeworkAccessRefreshTimer){
+    homeworkAccessRefreshTimer=setInterval(()=>{refreshStudentHomeworkAccess_();},15000);
+  }
 }
+document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')refreshStudentHomeworkAccess_();});
 
 let pendingSettingsName='';
 let pendingSettingsTriggerEl=null;
@@ -7124,6 +7270,7 @@ function renderScoreStrip(){
 }
 
 function startGame(){
+  if(blockStudentLearningEntry_())return;
   if(!isContentApproved('timeline',chosenDiff)){
     showToast2('선생님이 아직 공개하지 않은 학습입니다.');
     return;
@@ -7666,6 +7813,7 @@ function renderKingOrderList(){
 }
 
 function openKingOrderEra(eraId){
+  if(blockStudentLearningEntry_())return;
   const era=getKingOrderEra(eraId);
   if(!era||!isContentApproved('kingOrder',eraId)){showToast2('🔒 아직 공개되지 않은 시대예요.');return;}
   kingOrderEraId=eraId;
@@ -7977,6 +8125,7 @@ function getHistorySummaryReadingParagraphs(summaryId){
 }
 
 function openHistorySummary1(summaryId){
+  if(blockStudentLearningEntry_())return;
   if(!playerName){showToast2('⚠️ 먼저 이름을 선택해주세요!');return;}
   activeHistorySummaryId=summaryId||HISTORY_SUMMARY1_ID;
   const config=getHistorySummaryConfig_(activeHistorySummaryId);
@@ -8245,6 +8394,7 @@ function renderHistoryTrainingList(){
 }
 
 function openHistoryTrainingPart(partId, requestedStep){
+  if(blockStudentLearningEntry_())return;
   if(!isContentApproved('historyTraining',partId)){
     showToast2('선생님이 아직 공개하지 않은 학습입니다.');
     return;
@@ -9769,7 +9919,7 @@ async function apiGetHistoryTraining(name){
 // ===== 화이트리스트 읽기 API에만 single-flight+10초 캐시 적용 =====
 // verifyPin/adminLogin/verifyAdminPasswordOnly/setPin/resetPin/submit/저장·수정·삭제/
 // logAccess/logLogin/logLearningEvent/correctResult/토큰 요청은 절대 포함하지 않음
-apiGetContentVisibility=__wrapReadApi(apiGetContentVisibility, ()=>'getContentVisibility');
+apiGetContentVisibility=__wrapReadApi(apiGetContentVisibility, (forceFresh)=>'getContentVisibility'+(forceFresh?':fresh':''));
 apiGetContentRequirement=__wrapReadApi(apiGetContentRequirement, ()=>'getContentRequirement');
 apiList=__wrapReadApi(apiList, ()=>'list');
 apiGetAvatars=__wrapReadApi(apiGetAvatars, ()=>'getAvatars');
@@ -9785,7 +9935,7 @@ apiGetMapStudy=__wrapReadApi(apiGetMapStudy, (name)=>'getMapStudy:'+name);
 apiGetStudyPlanner=__wrapReadApi(apiGetStudyPlanner, (name)=>'getStudyPlanner:'+name);
 apiGetKingOrderProgress=__wrapReadApi(apiGetKingOrderProgress, (name)=>'getKingOrderProgress:'+name);
 apiListKingOrderProgress=__wrapReadApi(apiListKingOrderProgress, ()=>'listKingOrderProgress');
-apiGetAfterMidnightHomeworkAccess=__wrapReadApi(apiGetAfterMidnightHomeworkAccess, ()=>'getAfterMidnightHomeworkAccess');
+apiGetAfterMidnightHomeworkAccess=__wrapReadApi(apiGetAfterMidnightHomeworkAccess, (forceFresh)=>'getAfterMidnightHomeworkAccess'+(forceFresh?':fresh':''));
 apiGetMathConceptProgress=__wrapReadApi(apiGetMathConceptProgress, (name,unitId)=>{
   const content=window.MATH_CONTENT||window.MATH_CONCEPT_CONTENT;
   return `getMathConceptProgress:${name}:${unitId}:${Number(content?.units?.[unitId]?.contentVersion||2)}`;
@@ -10402,7 +10552,7 @@ function canManageAfterMidnightAccess_(){return (teacherAfterMidnightAccessActiv
 function afterMidnightStudentToggleHtml_(name){
   if(!canManageAfterMidnightAccess_())return '';
   const enabled=isAfterMidnightExceptionAllowed_(name),pending=afterMidnightAccessPending_[name]===true;
-  return `<div class="date-reset-row after-midnight-student-row"><span style="flex:1"><strong>🌙 자정 이후 학습 허용</strong><small style="display:block;color:var(--muted);margin-top:3px">허용 시 오늘 자정 이후에도 학습할 수 있습니다. 다음 날 자동 해제됩니다.</small></span><button class="date-reset-btn" onclick="event.stopPropagation();setAfterMidnightAccessUI_('${name}',${enabled?'false':'true'},this)"${pending?' disabled aria-disabled="true"':''}>${pending?'저장 중…':enabled?'ON · 해제':'OFF · 허용'}</button></div>`;
+  return `<div class="date-reset-row after-midnight-student-row"><span style="flex:1"><strong>🌙 자정 이후 학습 허용</strong><small style="display:block;color:var(--muted);margin-top:3px">열림이면 오늘 자정 이후에도 학습할 수 있습니다. 다음 날 자동 만료됩니다.</small></span><button class="date-reset-btn" aria-label="자정 이후 학습 허용 현재 ${enabled?'열림':'잠김'}" onclick="event.stopPropagation();setAfterMidnightAccessUI_('${name}',${enabled?'false':'true'},this)"${pending?' disabled aria-disabled="true"':''}>${pending?'저장 중…':enabled?'열림':'잠김'}</button></div>`;
 }
 
 function renderAfterMidnightAccessAdmin_(){
@@ -10410,7 +10560,7 @@ function renderAfterMidnightAccessAdmin_(){
   if(!canManageAfterMidnightAccess_()){root.innerHTML='';root.style.display='none';return;}root.style.display='block';
   const today=kstDateFromMs_(trustedServerNowMs_())||afterMidnightAccessState.serverKstDate;
   const allAllowed=STUDENTS.length>0&&STUDENTS.every(student=>isAfterMidnightExceptionAllowed_(student.name)),pending=afterMidnightAccessPending_.__ALL__===true;
-  root.innerHTML=`<div style="font-weight:900;color:var(--sand);margin:4px 0 8px">🌙 전체 학생 자정 이후 학습 허용</div><div class="date-reset-row"><span style="flex:1"><strong>전체 상태 · ${allAllowed?'ON':'OFF'}</strong><small style="display:block;color:var(--muted);margin-top:3px">허용 시 오늘 자정 이후에도 학습할 수 있습니다. 다음 날 자동 해제됩니다.<br>서버 KST ${today||'확인 중'} 기준</small></span><button class="date-reset-btn" onclick="setAfterMidnightAccessUI_('__ALL__',${allAllowed?'false':'true'},this)"${pending?' disabled aria-disabled="true"':''}>${pending?'저장 중…':allAllowed?'전체 해제':'전체 허용'}</button></div>${isAdminSessionActive()||isDeveloperTestMode()?`<div class="date-reset-row"><span style="flex:1">자정 잠금 강제 테스트</span><button class="date-reset-btn" onclick="setMidnightLockForceTest_(${midnightLockForceTest?'false':'true'})">${midnightLockForceTest?'ON · 끄기':'OFF · 켜기'}</button></div>`:''}`;
+  root.innerHTML=`<div style="font-weight:900;color:var(--sand);margin:4px 0 8px">🌙 전체 학생 자정 이후 학습 허용</div><div class="date-reset-row"><span style="flex:1"><strong>전체 상태 · ${allAllowed?'열림':'잠김'}</strong><small style="display:block;color:var(--muted);margin-top:3px">열림이면 오늘 자정 이후에도 학습할 수 있습니다. 다음 날 자동 만료됩니다.<br>서버 KST ${today||'확인 중'} 기준</small></span><button class="date-reset-btn" aria-label="전체 학생 자정 이후 학습 허용 현재 ${allAllowed?'열림':'잠김'}" onclick="setAfterMidnightAccessUI_('__ALL__',${allAllowed?'false':'true'},this)"${pending?' disabled aria-disabled="true"':''}>${pending?'저장 중…':allAllowed?'열림':'잠김'}</button></div>${isAdminSessionActive()||isDeveloperTestMode()?`<div class="date-reset-row"><span style="flex:1">자정 잠금 강제 테스트</span><button class="date-reset-btn" onclick="setMidnightLockForceTest_(${midnightLockForceTest?'false':'true'})">${midnightLockForceTest?'ON · 끄기':'OFF · 켜기'}</button></div>`:''}`;
 }
 async function setAfterMidnightAccessUI_(name,enabled,button){if(!canManageAfterMidnightAccess_()||afterMidnightAccessPending_[name])return false;afterMidnightAccessPending_[name]=true;if(button){button.disabled=true;button.setAttribute('aria-disabled','true');button.textContent='저장 중…';}const ok=await apiSetAfterMidnightHomeworkAccess(name,enabled);delete afterMidnightAccessPending_[name];renderAfterMidnightAccessAdmin_();document.querySelectorAll('[data-after-midnight-student]').forEach(el=>{el.innerHTML=afterMidnightStudentToggleHtml_(el.dataset.afterMidnightStudent);});if(!ok){showToast2('⚠️ 저장에 실패해 이전 서버 상태로 되돌렸어요.');return false;}const cached=readServerUiCache_('teacher');if(cached?.data)writeServerUiCache_('teacher','',{...cached.data,gridHtml:document.getElementById('teacher-result-grid')?.innerHTML||cached.data.gridHtml,accessHtml:document.getElementById('after-midnight-access-admin')?.innerHTML||cached.data.accessHtml});showToast2(enabled?'✅ 오늘 자정 이후 학습을 허용했어요.':'✅ 자정 이후 학습 허용을 해제했어요.');return true;}
 
@@ -10519,6 +10669,7 @@ async function showTeacherNoAuth(){
     apiListKingOrderProgress(),
     Promise.all(STUDENTS.map(student=>loadMathConceptProgressForName_(student.name)))
   ]);
+  renderContentApprovalPanel();
   await apiGetAfterMidnightHomeworkAccess();renderAfterMidnightAccessAdmin_();
 
   if(cachedTeacher&&(navigator.onLine===false||serverReadFailureAt_>=requestStartedAt)){showToast2('최신 정보를 불러오지 못했습니다.');return;}
@@ -10726,7 +10877,7 @@ function shuffle(arr){return[...arr].sort(()=>Math.random()-0.5)}
 
 function startQuiz(){
   if(!playerName){alert('이름을 선택해주세요!');return;}
-  if(blockExpiredHomeworkStep_(deadlineMap?.[currentUnit]||''))return;
+  if(blockStudentLearningEntry_())return;
   if(parentChildViewActive&&!isUnitCompletedForParent(parentChildViewName,currentUnit)){
     showToast2('🔒 아이가 PASS하지 않은 UNIT은 부모님 화면에서 풀 수 없어요.');
     return;
@@ -13317,10 +13468,12 @@ function renderMathCard(kicker,title,body){document.getElementById('math-concept
 async function openMathConceptLearning(unitId){
   if(!window.MathFlowV2){showToast2('⚠️ 수학 화면을 불러오지 못했어요.');return;}
   const student=STUDENTS.find(item=>item.name===playerName);if(!student)return;
+  if(blockStudentLearningEntry_())return;
   const __card=document.getElementById('math-unit-card');
   if(__card){ if(__card.classList.contains('tap-pending'))return; __card.classList.add('tap-pending'); }
   try{
     const content=await loadMathConceptContent(),targetUnitId=unitId||getMathActiveUnitId_(student,content);
+    if(blockMathLearningAccess_(playerName,targetUnitId,'concept'))return;
     if(isHomeworkPastDue_(playerName,content.units?.[targetUnitId]?.scheduledDate||'')){showToast2('🔒 오늘 학습 시간이 종료되었습니다.');return;}
     const conceptScreen=document.getElementById('math-concept-screen');if(conceptScreen)conceptScreen.dataset.homeworkDueDate=content.units?.[targetUnitId]?.scheduledDate||'';
     // 진행 상태는 로그인 시 이미 캐시돼 있으므로 재조회를 기다리지 않고 화면부터 연다 — 최신값은 백그라운드로만 확인.
@@ -13450,10 +13603,11 @@ function submitMathConceptCheck(){
   if(attempt.correct)setTimeout(()=>advanceAfterMathConceptCheck(),500);else renderMathPhase();
 }
 function returnToMathConcept(){mathSelectedAnswer='';mathFeedback=null;commitMathProgress({phase:'core-concept',questionId:null});renderMathPhase();}
-function advanceAfterMathConceptCheck(){const c=currentCoreConcept(),idx=mathActiveUnit.coreConcepts.indexOf(c);mathSelectedAnswer='';mathFeedback=null;if(idx<mathActiveUnit.coreConcepts.length-1)commitMathProgress({phase:'core-concept',conceptId:mathActiveUnit.coreConcepts[idx+1].id,questionId:null});else commitMathProgress({phase:'final-check',conceptId:null,questionId:mathActiveUnit.finalQuestions[0].id});renderMathPhase();}
+function advanceAfterMathConceptCheck(){const c=currentCoreConcept(),idx=mathActiveUnit.coreConcepts.indexOf(c);mathSelectedAnswer='';mathFeedback=null;if(idx<mathActiveUnit.coreConcepts.length-1)commitMathProgress({phase:'core-concept',conceptId:mathActiveUnit.coreConcepts[idx+1].id,questionId:null});else{if(blockMathLearningAccess_(playerName,mathActiveUnit.id,'unitQuiz'))return;commitMathProgress({phase:'final-check',conceptId:null,questionId:mathActiveUnit.finalQuestions[0].id});}renderMathPhase();}
 function findFinalIndex(){const idx=mathActiveUnit.finalQuestions.findIndex(q=>q.id===mathProgress.resume.questionId);return idx>=0?idx:0;}
 function renderMathFinalCheck(){const idx=findFinalIndex(),q=mathActiveUnit.finalQuestions[idx];setMathPhaseLabel(`⑥ 마지막 확인 ${idx+1} / ${mathActiveUnit.finalQuestions.length}`);renderMathCard('마지막 확인문제',`${idx+1}번`,mathQuestionHtml(q,'submitMathFinalAnswer()'));}
 function submitMathFinalAnswer(){
+  if(blockMathLearningAccess_(playerName,mathActiveUnit?.id||'','unitQuiz'))return;
   if(!String(mathSelectedAnswer).trim()){showToast2('답을 선택하거나 입력해주세요.');return;}
   const idx=findFinalIndex(),q=mathActiveUnit.finalQuestions[idx],attempt=makeMathAttempt(q,mathSelectedAnswer,'final');mathProgress.finalAssessment.attempts.push(attempt);mathProgress.finalAssessment.latestAnswers[q.id]=attempt;recalculateMathFinalResult(mathProgress);mathFeedback={correct:attempt.correct,explanation:q.explanation};commitMathProgress();
   setTimeout(()=>{mathSelectedAnswer='';mathFeedback=null;if(idx<mathActiveUnit.finalQuestions.length-1)commitMathProgress({phase:'final-check',questionId:mathActiveUnit.finalQuestions[idx+1].id});else commitMathProgress({phase:'result',questionId:null});renderMathPhase();},500);
