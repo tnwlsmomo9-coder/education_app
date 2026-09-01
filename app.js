@@ -5354,9 +5354,8 @@ function renderStudentCards(){
         ${note?`<div class="student-note">📌 ${note}</div>`:''}
         <div class="student-progress-row${cardDataLoading?' student-card-skeleton':''}">
           ${cardDataLoading
-            ? `<div class="student-progress-bar student-card-skeleton-bar"></div><span class="student-progress-pct">학습 기록 불러오는 중...</span>`
-            : `<div class="student-progress-bar"><div class="student-progress-fill${prog.percent<=50?' warning':''}" style="width:${prog.percent}%"></div></div>
-          <span class="student-progress-pct${prog.percent<=50?' warning':''}">${prog.percent}%</span>`}
+            ? `<div class="student-progress-bar student-card-skeleton-bar"></div><span class="student-progress-pct">학습 기록 불러오는 중…</span>`
+            : `<span class="student-progress-pct">학습 준비 완료</span>`}
         </div>
         ${(!cardDataLoading)?`<div class="student-study-total">⏱ 총 공부시간 ${formatStudySeconds(totalStudySeconds)}</div>`:''}
         ${(!cardDataLoading&&lastAccessText)?`<div class="student-last-access">🕐 마지막 접속: ${lastAccessText}</div>`:''}
