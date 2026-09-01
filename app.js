@@ -1941,6 +1941,11 @@ function selectUnit(el,key){
   document.querySelectorAll('.unit-card').forEach(c=>c.classList.remove('active'));
   el.classList.add('active');
   currentUnit=key;
+  const unitWasCompleted=(UNITS[key].examMode?calculateSummaryQuizProgress(playerName,key):calculateUnitProgress(playerName,key)).completed===true;
+  if(unitWasCompleted&&!UNITS[key].examMode){
+    currentLevel='easy';
+    document.querySelectorAll('.level-card').forEach(card=>card.classList.toggle('active',card.dataset.level==='easy'));
+  }
   levelSectionVisible=true;
   if(levelWrap) levelWrap.style.display='block';
   updateLevelDesc();
@@ -2243,12 +2248,13 @@ let mapStudyInitialCorrect=0;
 
 function createMapStudyCard(){
   const card=document.createElement('div');
-  card.className='unit-card';
+  const completed=playerName&&calculateMapStudyProgress(playerName).completed===true;
+  card.className='unit-card'+(completed?' done':'');
   card.dataset.learningContent='mapStudy';
   card.innerHTML=`<div class="unit-icon">🗺️</div>
     <div class="unit-info">
       <div class="unit-title">지도 문제</div>
-      <div class="unit-sub">PART 1~5 · 위치와 영토 익히기 · 50문제</div>
+      <div class="unit-sub">${completed?'완료 · 다시 학습하기':'PART 1~5 · 위치와 영토 익히기 · 50문제'}</div>
     </div>`;
   card.onclick=()=>showMapStudyList();
   return card;
@@ -2359,7 +2365,7 @@ async function showMapStudyList(){
         <span class="map-part-title">${part.id.toUpperCase()} · ${part.title}</span>
         <span class="map-part-sub">${part.sub}</span>
       </span>
-      <span class="map-part-score">${score}</span>
+      <span class="map-part-score">${p?.passed?'완료 · 다시 학습하기':score}</span>
     </button>`;
   }).join('');
   window.scrollTo(0,0);
@@ -2583,10 +2589,11 @@ function createUnitCardElement(key){
   const c=document.createElement('div');
   c.className='unit-card'+(key===currentUnit?' active':'')+(ready&&approved?'':' locked')+(!approved?' teacher-locked-content':'');
   c.dataset.unitKey=key;
+  const completed=(u.examMode?calculateSummaryQuizProgress(playerName,key):calculateUnitProgress(playerName,key)).completed===true;
   c.innerHTML=`<div class="unit-icon">${u.icon}</div>
     <div class="unit-info">
       <div class="unit-title">${u.title}</div>
-      <div class="unit-sub">${!approved?'선생님 공개 대기 중':(ready?(u.examMode?`${u.totalQuestions}문제 · ${Math.floor(u.duration/60)}분`:`기본 ${u.easyCount} · 심화 ${u.hardCount}`):'문제 준비 중 · 문제 추가 시 자동 활성화')}</div>
+      <div class="unit-sub">${!approved?'선생님 공개 대기 중':(completed?'완료 · 다시 학습하기':(ready?(u.examMode?`${u.totalQuestions}문제 · ${Math.floor(u.duration/60)}분`:`기본 ${u.easyCount} · 심화 ${u.hardCount}`):'문제 준비 중 · 문제 추가 시 자동 활성화'))}</div>
     </div>
     ${!approved?'<div class="content-lock-badge">🔒 비공개</div>':''}
     <div class="unit-pass-overlay">PASS</div>`;
@@ -3558,7 +3565,14 @@ function calculateOverallProgressV2(name){
   });
 
   // 필수학습 항목에서 완료되지 않은 것만 미완료 목록에 사용한다.
-  const sortedItems=requiredItems.filter(item=>!item.completed&&item.displayItem).map(item=>item.displayItem).sort((a,b)=>(a.sortOrder||0)-(b.sortOrder||0));
+  // 서버 응답 순서와 화면 순서는 분리한다. 현재 필수 수학이 있으면 수학을 먼저,
+  // 수학이 없을 때만 역사가 첫 항목이 되도록 한 뒤 과목 안에서는 기존 순서를 유지한다.
+  const mathModuleKeys=new Set(['mathConcept','mathBasicConceptReview','mathConceptReviewLearning','mathWrongPractice']);
+  const sortedItems=requiredItems.filter(item=>!item.completed&&item.displayItem).map(item=>item.displayItem).sort((a,b)=>{
+    const subjectOrderA=mathModuleKeys.has(a.moduleKey)?0:1;
+    const subjectOrderB=mathModuleKeys.has(b.moduleKey)?0:1;
+    return subjectOrderA-subjectOrderB||(a.sortOrder||0)-(b.sortOrder||0);
+  });
   const seen=new Set();
   const dedupedItems=[];
   sortedItems.forEach(item=>{
@@ -4477,16 +4491,16 @@ async function renderMathLearningCards_(){
   }
   const title=document.getElementById('math-active-unit-title'),sub=document.getElementById('math-active-unit-sub');
   if(title)title.textContent=activeUnit?activeUnit.title:'수학개념학습';
-  if(sub)sub.textContent=activeUnit?((activeUnit.gradeLabel||'')+' · '+(midnightLocked?'오늘 학습 시간이 종료되었습니다.':activeLock.locked?'이전 학습을 먼저 완료해 주세요':(activeProgress.completed?'다시 학습하기':'선수개념부터 차근차근 이해하기'))):'콘텐츠 준비 중';
+  if(sub)sub.textContent=activeUnit?((activeUnit.gradeLabel||'')+' · '+(midnightLocked?'오늘 학습 시간이 종료되었습니다.':activeLock.locked?'이전 학습을 먼저 완료해 주세요':(activeProgress.completed?'완료 · 다시 학습하기':'선수개념부터 차근차근 이해하기'))):'콘텐츠 준비 중';
   const wrongSub=document.getElementById('math-wrong-practice-sub');
   const wrongCard=document.getElementById('math-wrong-practice-card');
-  const wrongCount=getMathWrongPracticeItems_(playerName).length;
-  if(wrongSub)wrongSub.textContent=midnightLocked?'오늘 학습 시간이 종료되었습니다.':wrongCount?`${wrongCount}문제 남음`:'등록된 오답이 없어요';
-  if(wrongCard){wrongCard.classList.toggle('teacher-locked-content',midnightLocked);wrongCard.setAttribute('aria-disabled',midnightLocked?'true':'false');}
+  const wrongCount=getMathWrongPracticeItems_(playerName).length,resolvedWrongCount=getResolvedMathWrongPracticeItems_(playerName).length;
+  if(wrongSub)wrongSub.textContent=midnightLocked?'오늘 학습 시간이 종료되었습니다.':wrongCount?`${wrongCount}문제 남음`:resolvedWrongCount?'완료 · 다시 학습하기':'등록된 오답이 없어요';
+  if(wrongCard){wrongCard.classList.toggle('math-completed',wrongCount===0&&resolvedWrongCount>0);wrongCard.classList.toggle('teacher-locked-content',midnightLocked);wrongCard.setAttribute('aria-disabled',midnightLocked?'true':'false');}
   const basicCard=document.getElementById('math-basic-review-card'),basicTitle=document.getElementById('math-basic-review-title'),basicSub=document.getElementById('math-basic-review-sub');
   const basicUnit=getMathBasicConceptReviewUnits_(playerName).find(item=>item.unitId===activeUnitId),basicReady=!!basicUnit,basicCompleted=basicUnit?.completed===true;
   if(basicTitle)basicTitle.textContent=activeUnit?`기본개념 확인 · ${activeUnit.title}`:'기본개념 확인';
-  if(basicSub)basicSub.textContent=!activeUnit?'콘텐츠 준비 중':midnightLocked?'오늘 학습 시간이 종료되었습니다.':basicCompleted?'완료':basicReady?'미완료 · 바로 확인하기':'예정일 다음 날부터 확인할 수 있어요';
+  if(basicSub)basicSub.textContent=!activeUnit?'콘텐츠 준비 중':midnightLocked?'오늘 학습 시간이 종료되었습니다.':basicCompleted?'완료 · 다시 학습하기':basicReady?'미완료 · 바로 확인하기':'예정일 다음 날부터 확인할 수 있어요';
   if(basicCard){basicCard.classList.toggle('math-completed',basicCompleted);basicCard.classList.toggle('teacher-locked-content',!basicReady||midnightLocked);basicCard.setAttribute('aria-disabled',basicReady&&!midnightLocked?'false':'true');basicCard.dataset.unitId=activeUnitId||'';}
   const reviewCard=document.getElementById('math-concept-review-card'),reviewTitle=document.getElementById('math-concept-review-title'),reviewSub=document.getElementById('math-concept-review-sub');
   const reviewProgress=pickNewerMathConceptProgress_(readMathConceptProgressWithMigration_(playerName,activeUnitId),mathConceptProgressOverviewCache[mathConceptCacheKey_(playerName,activeUnitId)]),reviewCompleted=reviewProgress?.conceptReviewLearning?.completed===true,reviewPrerequisitesDone=activeProgress.completed&&(!Array.isArray(activeUnit?.basicConceptReview)||!activeUnit.basicConceptReview.length||reviewProgress?.basicConceptReview?.completed===true)&&!activeLock.locked,reviewReady=!!(activeUnit?.conceptReviewLearning&&(reviewCompleted||reviewPrerequisitesDone));
@@ -4502,16 +4516,18 @@ async function renderMathLearningCards_(){
     const progress=pickNewerMathConceptProgress_(readMathConceptProgressWithMigration_(playerName,unitId),mathConceptProgressOverviewCache[mathConceptCacheKey_(playerName,unitId)]);
     const completed=progress?.studentKey===playerName&&progress?.unitId===unitId&&progress.completed===true;
     const lock=getMathSequentialLock_(playerName,unitId,content);
-    return `<div class="unit-card${completed?' math-completed':''}${lock.locked?' teacher-locked-content':''}" onclick="openMathConceptLearning('${unitId}')" role="button" tabindex="${lock.locked?'-1':'0'}" aria-disabled="${lock.locked?'true':'false'}">
+    const conceptCard=`<div class="unit-card${completed?' math-completed':''}${lock.locked?' teacher-locked-content':''}" onclick="openMathConceptLearning('${unitId}')" role="button" tabindex="${lock.locked?'-1':'0'}" aria-disabled="${lock.locked?'true':'false'}">
       <div class="unit-icon">📘</div><div class="unit-info"><div class="unit-title">${mathEscape(previousUnit.title)}</div>
-      <div class="unit-sub">${mathEscape(previousUnit.gradeLabel||'수학')} · ${lock.locked?'이전 학습을 먼저 완료해 주세요':(completed?'다시 학습하기':'이전 학습')}</div></div></div>`;
+      <div class="unit-sub">${mathEscape(previousUnit.gradeLabel||'수학')} · ${lock.locked?'이전 학습을 먼저 완료해 주세요':(completed?'완료 · 다시 학습하기':'이전 학습')}</div></div></div>`;
+    const basicCard=progress?.basicConceptReview?.completed===true?`<div class="unit-card math-completed" onclick="openMathBasicConceptReview('${unitId}')"><div class="unit-icon">🧠</div><div class="unit-info"><div class="unit-title">기본개념 확인 · ${mathEscape(previousUnit.title)}</div><div class="unit-sub">완료 · 다시 학습하기</div></div></div>`:'';
+    const reviewCard=progress?.conceptReviewLearning?.completed===true?`<div class="unit-card math-completed" onclick="openMathConceptReviewLearning('${unitId}')"><div class="unit-icon">🔁</div><div class="unit-info"><div class="unit-title">개념복습학습 · ${mathEscape(previousUnit.title)}</div><div class="unit-sub">완료 · 다시 학습하기</div></div></div>`:'';
+    return conceptCard+basicCard+reviewCard;
   }).join('');
 }
 
 function openMathBasicConceptReviewForActive_(){
   const student=STUDENTS.find(item=>item.name===playerName),content=window.MATH_CONTENT||window.MATH_CONCEPT_CONTENT,unitId=getMathActiveUnitId_(student,content),item=getMathBasicConceptReviewUnits_(playerName).find(entry=>entry.unitId===unitId);
   if(!item){showToast2('아직 기본개념 확인 시간이 아니에요.');return;}
-  if(item.completed){showToast2('기본개념 확인을 완료했어요.');return;}
   openMathBasicConceptReview(unitId);
 }
 
@@ -4519,11 +4535,23 @@ let mathWrongPracticeQueue=[];
 let mathWrongPracticeSelected=null;
 let mathWrongPracticeFeedback=null;
 let mathWrongPracticePhase='concept';
+let mathWrongPracticeReplayMode=false;
+function getResolvedMathWrongPracticeItems_(name){
+  const student=STUDENTS.find(s=>s.name===name),content=window.MATH_CONTENT||window.MATH_CONCEPT_CONTENT,items=[];
+  if(!student||!content)return items;
+  getMathUnitIds_(student,content).forEach(unitId=>{
+    const progress=getServerMathConceptProgress_(name,unitId),unit=content.units?.[unitId];
+    Object.values(progress?.wrongPractice?.items||{}).forEach(item=>{if(item?.resolved===true&&item.unitId===unitId)items.push({...item,unitTitle:unit?.title||unitId});});
+  });
+  return items;
+}
 
 async function openMathWrongPractice(){
   if(!playerName)return;
   await loadMathConceptProgressForName_(playerName);
   mathWrongPracticeQueue=getMathWrongPracticeItems_(playerName);
+  mathWrongPracticeReplayMode=mathWrongPracticeQueue.length===0&&getResolvedMathWrongPracticeItems_(playerName).length>0;
+  if(mathWrongPracticeReplayMode)mathWrongPracticeQueue=getResolvedMathWrongPracticeItems_(playerName);
   if(mathWrongPracticeQueue.length&&mathWrongPracticeQueue.every(item=>isHomeworkPastDue_(playerName,(window.MATH_CONTENT||window.MATH_CONCEPT_CONTENT)?.units?.[item.unitId]?.scheduledDate||''))){showToast2('🔒 오늘 학습 시간이 종료되었습니다.');return;}
   const wrongScreen=document.getElementById('math-concept-screen');if(wrongScreen)wrongScreen.dataset.homeworkDueDate=mathWrongPracticeQueue[0]?(window.MATH_CONTENT||window.MATH_CONCEPT_CONTENT)?.units?.[mathWrongPracticeQueue[0].unitId]?.scheduledDate||'':'';
   mathWrongPracticeSelected=null;mathWrongPracticeFeedback=null;mathWrongPracticePhase='concept';
@@ -4534,10 +4562,11 @@ async function openMathWrongPractice(){
 function renderMathWrongPractice_(){
   const root=document.getElementById('math-concept-root'),step=document.getElementById('math-step-label');
   if(!root)return;
-  mathWrongPracticeQueue=getMathWrongPracticeItems_(playerName);
+  if(!mathWrongPracticeReplayMode)mathWrongPracticeQueue=getMathWrongPracticeItems_(playerName);
   if(step)step.textContent=mathWrongPracticeQueue.length?`${mathWrongPracticePhase==='concept'?'관련 개념 복습':'오답 문제 다시 풀기'} · ${mathWrongPracticeQueue.length}문제 남음`:'오답연습 완료';
   if(!mathWrongPracticeQueue.length){
-    root.innerHTML='<section class="math-card"><div class="math-kicker">수학 오답연습</div><h2>모든 오답을 해결했어요!</h2><div class="math-actions"><button type="button" class="math-primary" onclick="closeMathConceptLearning()">학습 홈으로</button></div></section>';
+    const replayAvailable=getResolvedMathWrongPracticeItems_(playerName).length>0;
+    root.innerHTML=`<section class="math-card"><div class="math-kicker">수학 오답연습</div><h2>모든 오답을 해결했어요!</h2><p>${replayAvailable?'완료 기록은 유지한 채 다시 연습할 수 있어요.':'새 오답이 생기면 이곳에서 연습할 수 있어요.'}</p><div class="math-actions">${replayAvailable?'<button type="button" class="math-primary" onclick="openMathWrongPractice()">다시 학습하기</button>':''}<button type="button" class="math-secondary" onclick="closeMathConceptLearning()">학습 홈으로</button></div></section>`;
     renderIncompleteUnitsSection();renderMathLearningCards_();
     return;
   }
@@ -4581,6 +4610,9 @@ async function submitMathWrongPracticeAnswer(){
   const correct=isMathAnswerCorrect(item,mathWrongPracticeSelected);
   mathWrongPracticeFeedback={correct};
   if(!correct){renderMathWrongPractice_();return;}
+  if(mathWrongPracticeReplayMode){
+    mathWrongPracticeQueue.shift();mathWrongPracticeSelected=null;mathWrongPracticeFeedback=null;mathWrongPracticePhase='concept';renderMathWrongPractice_();return;
+  }
   await resolveMathWrongPracticeItem_(playerName,item.unitId,item.questionId,mathWrongPracticeSelected);
   mathWrongPracticeSelected=null;mathWrongPracticeFeedback=null;mathWrongPracticePhase='concept';
   renderMathWrongPractice_();
@@ -4688,19 +4720,20 @@ function mathBasicReviewQuestionHtml_(question){
 }
 async function openMathBasicConceptReview(unitId){
   if(!playerName)return;const content=await loadMathConceptContent();await loadMathConceptProgressForName_(playerName);
-  const eligible=getMathBasicConceptReviewUnits_(playerName).find(item=>item.unitId===unitId&&!item.completed),unit=content.units?.[unitId];
+  const eligible=getMathBasicConceptReviewUnits_(playerName).find(item=>item.unitId===unitId),unit=content.units?.[unitId];
   if(isHomeworkPastDue_(playerName,unit?.scheduledDate||'')){showToast2('🔒 오늘 학습 시간이 종료되었습니다.');return;}
   const basicScreen=document.getElementById('math-concept-screen');if(basicScreen)basicScreen.dataset.homeworkDueDate=unit?.scheduledDate||'';
   if(!eligible||!unit||!Array.isArray(unit.basicConceptReview)){showToast2('아직 기본개념 확인 시간이 아니에요.');return;}
   mathBasicReviewUnit=unit;mathBasicReviewItems=unit.basicConceptReview;const saved=eligible.progress.basicConceptReview||{};
   const hadRecord=hasMathBasicReviewRecord_(eligible.progress),retroactive=isMathBasicReviewRetroactive_(eligible.progress,unitId,new Date(),content);
-  mathBasicReviewState={createdAt:saved.createdAt||new Date().toISOString(),createdForCompletedAt:saved.createdForCompletedAt||eligible.progress.completedAt,createdForScheduledDate:saved.createdForScheduledDate||unit.scheduledDate,createdMode:saved.createdMode||(retroactive?'retroactive':'scheduled-next-day'),completed:saved.completed===true,completedAt:saved.completedAt||null,results:{...(saved.results||{})}};
+  mathBasicReviewState={createdAt:saved.createdAt||new Date().toISOString(),createdForCompletedAt:saved.createdForCompletedAt||eligible.progress.completedAt,createdForScheduledDate:saved.createdForScheduledDate||unit.scheduledDate,createdMode:saved.createdMode||(retroactive?'retroactive':'scheduled-next-day'),completed:saved.completed===true,completedAt:saved.completedAt||null,firstCompletedAt:saved.firstCompletedAt||saved.completedAt||null,relearning:saved.relearning===true,history:[...(saved.history||[])],results:{...(saved.results||{})}};
   if(!hadRecord)await saveMathBasicConceptReview_(playerName,unitId,mathBasicReviewState);
   const current=getMathBasicReviewCurrent_();mathBasicReviewAnswer='';mathBasicReviewShowingConcept=!!(current&&mathBasicReviewState.results[current.conceptId]?.needsReview);
   htShowOnlyScreen('math-concept-screen');renderMathBasicConceptReview_();
 }
 function renderMathBasicConceptReview_(){
   const root=document.getElementById('math-concept-root'),step=document.getElementById('math-step-label');if(!root||!mathBasicReviewUnit)return;
+  if(mathBasicReviewState.completed&&!mathBasicReviewState.relearning){if(step)step.textContent='기본개념 확인 완료';root.innerHTML=`<section class="math-card"><div class="math-kicker">${mathEscape(mathBasicReviewUnit.title)} · 기본개념 확인</div><h2>기본개념 확인을 완료했어요!</h2><p>기존 완료 기록과 진행률은 그대로 유지돼요.</p><div class="math-actions"><button type="button" class="math-primary" onclick="restartMathBasicConceptReview()">다시 학습하기</button><button type="button" class="math-secondary" onclick="closeMathConceptLearning()">학습 홈으로</button></div></section>`;return;}
   const passed=mathBasicReviewItems.filter(item=>mathBasicReviewState.results[item.conceptId]?.passed).length,current=getMathBasicReviewCurrent_();
   if(!current){if(step)step.textContent='기본개념 확인 완료';root.innerHTML=`<section class="math-card"><div class="math-kicker">${mathEscape(mathBasicReviewUnit.title)}</div><h2>기본개념을 모두 기억하고 있어요!</h2><div class="math-actions"><button type="button" class="math-primary" onclick="closeMathConceptLearning()">학습 홈으로</button></div></section>`;renderIncompleteUnitsSection();return;}
   if(step)step.textContent=`기본개념 확인 ${passed+1} / ${mathBasicReviewItems.length}`;const result=mathBasicReviewState.results[current.conceptId]||{};
@@ -4710,18 +4743,26 @@ function renderMathBasicConceptReview_(){
 }
 function selectMathBasicReviewAnswer(index){const current=getMathBasicReviewCurrent_(),result=current&&mathBasicReviewState.results[current.conceptId],question=result?.needsReview?current.retryQuestion:current?.question;mathBasicReviewAnswer=question?.choices?.[index]??'';renderMathBasicConceptReview_();}
 function startMathBasicReviewRetry(){mathBasicReviewShowingConcept=false;mathBasicReviewAnswer='';renderMathBasicConceptReview_();}
+async function restartMathBasicConceptReview(){
+  const completedAt=mathBasicReviewState.completedAt,firstCompletedAt=mathBasicReviewState.firstCompletedAt||completedAt,history=[...(mathBasicReviewState.history||[])];
+  mathBasicReviewState={...mathBasicReviewState,completed:true,completedAt,firstCompletedAt,relearning:true,history,results:{}};
+  mathBasicReviewAnswer='';mathBasicReviewShowingConcept=false;await saveMathBasicConceptReview_(playerName,mathBasicReviewUnit.id,mathBasicReviewState);renderMathBasicConceptReview_();
+}
 async function submitMathBasicReviewAnswer(){
   if(blockExpiredHomeworkStep_(mathBasicReviewUnit?.scheduledDate||''))return;
   const current=getMathBasicReviewCurrent_();if(!current||mathBasicReviewAnswer==='')return;const previous=mathBasicReviewState.results[current.conceptId]||{},question=previous.needsReview?current.retryQuestion:current.question;
   const correct=isMathAnswerCorrect(question,mathBasicReviewAnswer),attempt={questionId:question.id,answer:String(mathBasicReviewAnswer),correct,attemptedAt:new Date().toISOString()};
   mathBasicReviewState.results[current.conceptId]={...previous,passed:correct,needsReview:!correct,attempts:[...(previous.attempts||[]),attempt]};mathBasicReviewAnswer='';mathBasicReviewShowingConcept=!correct;
-  if(correct&&!getMathBasicReviewCurrent_()){mathBasicReviewState.completed=true;mathBasicReviewState.completedAt=new Date().toISOString();}
-  await saveMathBasicConceptReview_(playerName,mathBasicReviewUnit.id,mathBasicReviewState);renderMathBasicConceptReview_();
+  if(correct&&!getMathBasicReviewCurrent_()){const finishedAt=new Date().toISOString(),firstCompletion=mathBasicReviewState.completed!==true;mathBasicReviewState.completed=true;mathBasicReviewState.completedAt=mathBasicReviewState.completedAt||finishedAt;mathBasicReviewState.firstCompletedAt=mathBasicReviewState.firstCompletedAt||mathBasicReviewState.completedAt;if(mathBasicReviewState.relearning){mathBasicReviewState.history=[...(mathBasicReviewState.history||[]),{completedAt:finishedAt,results:JSON.parse(JSON.stringify(mathBasicReviewState.results))}];mathBasicReviewState.relearning=false;}else if(firstCompletion)mathBasicReviewState.firstCompletedAt=finishedAt;}
+  const wrong=correct?null:{question,conceptId:current.conceptId,answer:String(attempt.answer),attemptedAt:attempt.attemptedAt};
+  await saveMathBasicConceptReview_(playerName,mathBasicReviewUnit.id,mathBasicReviewState,wrong);renderMathBasicConceptReview_();
 }
-async function saveMathBasicConceptReview_(name,unitId,state){
+async function saveMathBasicConceptReview_(name,unitId,state,wrong=null){
   if(isLearningWriteBlocked())return false;
   let snapshot=pickNewerMathConceptProgress_(readMathConceptProgressWithMigration_(name,unitId),mathConceptProgressOverviewCache[mathConceptCacheKey_(name,unitId)]);if(!snapshot||snapshot.studentKey!==name||snapshot.unitId!==unitId)return false;
-  snapshot=JSON.parse(JSON.stringify(snapshot));snapshot.basicConceptReview=JSON.parse(JSON.stringify(state));snapshot.syncRevision=(Number(snapshot.syncRevision)||0)+1;snapshot.updatedAt=new Date().toISOString();snapshot.pendingSync=true;
+  snapshot=JSON.parse(JSON.stringify(snapshot));snapshot.basicConceptReview=JSON.parse(JSON.stringify(state));snapshot.wrongPractice={...(snapshot.wrongPractice||{}),items:{...(snapshot.wrongPractice?.items||{})}};
+  if(wrong){const q=wrong.question,old=snapshot.wrongPractice.items[q.id]||{};snapshot.wrongPractice.items[q.id]={...old,questionId:q.id,unitId,conceptId:wrong.conceptId,question:q.question,choices:Array.isArray(q.choices)?q.choices.slice():[],correctAnswer:String(q.correctAnswer),acceptedAnswers:Array.isArray(q.acceptedAnswers)?q.acceptedAnswers.slice():[],diagram:String(q.diagram||''),studentAnswer:wrong.answer,explanation:String(q.explanation||''),wrongAt:old.wrongAt||wrong.attemptedAt,resolved:false};}
+  snapshot.syncRevision=(Number(snapshot.syncRevision)||0)+1;snapshot.updatedAt=new Date().toISOString();snapshot.pendingSync=true;
   try{localStorage.setItem(mathConceptUnitStorageKey_(name,unitId),JSON.stringify(snapshot));}catch(error){}mathConceptProgressOverviewCache[mathConceptCacheKey_(name,unitId)]=snapshot;
   for(let attempt=0;attempt<2;attempt++){const result=await apiSaveMathConceptProgress(snapshot);if(result?.ok){snapshot.lastServerRevision=Math.max(Number(snapshot.lastServerRevision)||0,Number(result.savedRevision)||snapshot.syncRevision);snapshot.pendingSync=snapshot.syncRevision>snapshot.lastServerRevision;try{localStorage.setItem(mathConceptUnitStorageKey_(name,unitId),JSON.stringify(snapshot));}catch(error){}mathConceptProgressOverviewCache[mathConceptCacheKey_(name,unitId)]=snapshot;renderIncompleteUnitsSection();renderMathLearningCards_();return true;}
     if(result?.error!=='STALE_REVISION'||!result.data||result.data.unitId!==unitId)break;const server=result.data;snapshot={...server,basicConceptReview:JSON.parse(JSON.stringify(state)),wrongPractice:{...(server.wrongPractice||{}),items:{...(server.wrongPractice?.items||{}),...(snapshot.wrongPractice?.items||{})}},syncRevision:Math.max(Number(result.savedRevision)||0,Number(server.syncRevision)||0)+1,updatedAt:new Date().toISOString(),pendingSync:true};}
@@ -4937,6 +4978,7 @@ function renderLectureVideoList(){
 }
 
 let playerName='',currentLevel='easy',questions=[],currentIdx=0,score=0,wrongQ=[],answered=false,submitted=false;
+let completedReplayUnitAttempt=false;
 let wrongRetryMode=false;
 let memoryCardStageByIndex=new Map();
 let memoryCardRetryIndices=new Set();
@@ -5578,12 +5620,12 @@ function refreshStudentProgressUI(name, options={}){
 }
 
 // 학생별 서버 데이터를 필요할 때만 조회 (5초 이내 재조회 생략, 진행 중인 요청 재사용)
-function loadStudentDataIfStale(name, forceRefresh=false){
+function loadStudentDataIfStale(name, forceRefresh=false, options={}){
   if(!name) return Promise.resolve();
   const now=Date.now();
 
   // 이전 서버 성공 스냅샷을 먼저 적용해 빈 화면 없이 즉시 표시하고, 아래 조회로 최신화한다.
-  const restoredFromCache=restoreStudentServerSnapshot_(name);
+  const restoredFromCache=options.cacheAlreadyRestored===true||restoreStudentServerSnapshot_(name);
   const beforeFingerprint=studentServerSnapshotFingerprint_(name);
   const requestStartedAt=Date.now();
   if(restoredFromCache&&playerName===name)refreshStudentProgressUI(name,{includeStudentList:false});
@@ -6652,7 +6694,13 @@ async function selectStudent(card,name){
   // 이전 학생의 학습시간을 백그라운드로 저장 (await 안 함 — 화면 전환 속도에 영향 없음)
   if(previousStudent) syncStudyTimeToServer(previousStudent,false);
 
-  // 1) 캐시/localStorage로 즉시 홈을 표시 (학생 선택 화면의 4명 카드 재렌더링은 홈에 불필요)
+  // 1) 지연 로드되는 수학 콘텐츠를 먼저 준비해야 학생 캐시의 수학 unitId를 복원할 수 있다.
+  // 이 단계 전에는 기존 메모리의 역사 데이터만으로 미완료 목록을 그리지 않는다.
+  try{await loadMathConceptContent();}catch(error){console.warn('수학 콘텐츠 선로딩 실패:',error);}
+  if(playerName!==name)return;
+  const studentCacheRestored=restoreStudentServerSnapshot_(name);
+
+  // 캐시/localStorage로 즉시 홈을 표시 (학생 선택 화면의 4명 카드 재렌더링은 홈에 불필요)
   // 학생 선택 화면으로 돌아갈 때는 changeStudentFromLearningHome()에서 카드를 갱신한다.
   updateProgressColors();
   updateSelectedNameBanner();
@@ -6662,7 +6710,7 @@ async function selectStudent(card,name){
 
   // 2) 실제 학생만 서버 데이터를 백그라운드에서 조회
   if(!isDeveloperTestMode()){
-    const studentDataPromise=loadStudentDataIfStale(name);
+    const studentDataPromise=loadStudentDataIfStale(name,false,{cacheAlreadyRestored:studentCacheRestored});
     // 학생별 핵심 데이터가 시작된 뒤에만 초기 공통 조회(공개설정/메모 등)를 재개한다.
     studentDataPromise.finally(()=>scheduleStartupBackgroundLoads_(0));
   }
@@ -7535,12 +7583,13 @@ function saveKingOrderComplete(era){
 
 function createKingOrderCard(){
   const card=document.createElement('div');
-  card.className='unit-card';
+  const completed=playerName&&calculateKingOrderProgress(playerName).completed===true;
+  card.className='unit-card'+(completed?' done':'');
   card.dataset.learningContent='kingOrder';
   card.innerHTML=`<div class="unit-icon">👑</div>
     <div class="unit-info">
       <div class="unit-title">역대 왕 계보</div>
-      <div class="unit-sub">${KING_ORDER_DUE_LABEL} · 핵심 왕만 문제</div>
+      <div class="unit-sub">${completed?'완료 · 다시 학습하기':KING_ORDER_DUE_LABEL+' · 핵심 왕만 문제'}</div>
     </div>`;
   card.onclick=()=>showKingOrder();
   return card;
@@ -7577,7 +7626,7 @@ function renderKingOrderList(){
     return `<button class="king-era-card ${done?'done':''}" onclick="openKingOrderEra('${era.id}')">
       <span class="king-era-icon">${era.icon}</span>
       <span class="king-era-main"><b>${kingOrderEscape(era.title)}</b><small>전체 ${era.kings.length}명 · 핵심 ${coreCount}명</small></span>
-      <span class="king-era-status">${done?'완료 ✓':'시작 →'}</span>
+      <span class="king-era-status">${done?'완료 · 다시 학습하기':'시작 →'}</span>
     </button>`;
   }).join('')}</div>`;
 }
@@ -7783,12 +7832,13 @@ function checkKingOrderSequence(){
 
 function createHistoryTrainingCard(){
   const c=document.createElement('div');
-  c.className='unit-card';
+  const completed=playerName&&calculateHistoryTrainingOverallProgress(playerName).completed===true;
+  c.className='unit-card'+(completed?' done':'');
   c.dataset.learningContent='historyTraining';
   c.innerHTML=`<div class="unit-icon">🏛️</div>
     <div class="unit-info">
       <div class="unit-title">역사 훈련소</div>
-      <div class="unit-sub">읽고 쓰며 완성하는 한국사 복습</div>
+      <div class="unit-sub">${completed?'완료 · 다시 학습하기':'읽고 쓰며 완성하는 한국사 복습'}</div>
     </div>`;
   c.onclick=()=>showHistoryTrainingList();
   return c;
@@ -7857,9 +7907,9 @@ function renderHistorySummary1Card(){
       <div class="history-summary-icon">${prog.completed?'🏅':'📚'}</div>
       <div class="history-summary-info">
         <b>${config.number} ${config.title}</b>
-        <span>${prog.completed?'총정리 완료 · 다시 읽기 가능':'읽기 전용 · 1분 핵심요약 포함'}</span>
+        <span>${prog.completed?'완료 · 다시 학습하기':'읽기 전용 · 1분 핵심요약 포함'}</span>
       </div>
-      <button class="history-summary-btn" onclick="event.stopPropagation();openHistorySummary1('${config.id}')">${prog.completed?'다시 읽기':'시작하기'}</button>
+      <button class="history-summary-btn" onclick="event.stopPropagation();openHistorySummary1('${config.id}')">${prog.completed?'다시 학습하기':'시작하기'}</button>
     </div>`).join('')}
   </div>`;
 }
@@ -8103,12 +8153,13 @@ function completeHistorySummary1(){
     showToast2('📖 먼저 읽기 확인을 완료해주세요.');
     return;
   }
+  const wasCompleted=prog.completed===true;
   prog.completed=true;
   prog.currentStep='completed';
-  prog.completedAt=new Date().toISOString();
+  prog.completedAt=prog.completedAt||new Date().toISOString();
   prog.progressPercent=100;
   saveHistoryTrainingProgress(activeHistorySummaryId);
-  if(typeof apiAddCompletedStudyActivity==='function'){
+  if(!wasCompleted&&typeof apiAddCompletedStudyActivity==='function'){
     apiAddCompletedStudyActivity(playerName,{
       key:config.id,
       source:'historySummary',
@@ -8145,7 +8196,7 @@ function renderHistoryTrainingList(){
     const scoreText=(prog&&prog.firstScore!=null)
       ?('최초 점수 '+prog.firstScore+'점')
       :(done?'학습 완료':(progress.percent>0?(progress.percent+'% 진행중'):'아직 시작하지 않았어요'));
-    const btnLabel=done?'다시 보기':getResumeButtonLabel(progress);
+    const btnLabel=done?'완료 · 다시 학습하기':getResumeButtonLabel(progress);
     const btnStep=done?", 'reading'":'';
     return `<div class="ht-part-card${done?' done':''}" onclick="openHistoryTrainingPart('${part.id}')">
       <div class="ht-part-num">${part.partNumber}</div>
@@ -9361,7 +9412,7 @@ function htShowFirstResult(part){
     const wasPartCompleted=!!prog.completed;
     prog.reviewCompleted=true;
     prog.completed=true;
-    prog.completedAt=new Date().toLocaleString('ko-KR');
+    prog.completedAt=prog.completedAt||new Date().toLocaleString('ko-KR');
     saveHistoryTrainingProgress(htCurrentPartId, wasPartCompleted?undefined:{contentType:'historyTraining',contentId:htCurrentPartId,contentTitle:part.title||'',action:'complete'});
     SFX.complete();
     htGoToStep('completed');
@@ -9398,7 +9449,7 @@ function htRenderReviewQuestion(part){
     const wasPartCompleted=!!prog.completed;
     prog.reviewCompleted=true;
     prog.completed=true;
-    prog.completedAt=new Date().toLocaleString('ko-KR');
+    prog.completedAt=prog.completedAt||new Date().toLocaleString('ko-KR');
     prog.remainingWrongQuestionIds=[];
     saveHistoryTrainingProgress(htCurrentPartId, wasPartCompleted?undefined:{contentType:'historyTraining',contentId:htCurrentPartId,contentTitle:(htGetPart(htCurrentPartId)||{}).title||'',action:'complete'});
     area.innerHTML=`<div class="ht-result-card">
@@ -10649,12 +10700,13 @@ function startQuiz(){
     showToast2('👨‍👩‍👧 완료한 UNIT을 기록 없이 다시 풀어봅니다.');
   }
   wrongRetryMode=false;
+  completedReplayUnitAttempt=(UNITS[currentUnit]?.examMode?calculateSummaryQuizProgress(playerName,currentUnit):calculateUnitProgress(playerName,currentUnit)).completed===true;
   resetMingeonMemoryCardFlow();
   submitted=false;
   startNewQuizAttemptContext_(); // 실제 새 퀴즈 시작 — 새 resultId 발급(재렌더링이 아니라 진짜 시작이므로)
   const unit=UNITS[currentUnit];
   const quizScreen=document.getElementById('quiz-screen');if(quizScreen)quizScreen.dataset.homeworkDueDate=deadlineMap?.[currentUnit]||'';
-  if(!isParentUnitPracticeMode()){
+  if(!isParentUnitPracticeMode()&&!completedReplayUnitAttempt){
     enqueueLearningEvent_({contentType:'unit', unitId:currentUnit, contentTitle:unit.title||'', action:'start'});
   }
   if(unit.examMode){
@@ -10831,7 +10883,7 @@ async function submitExam(auto){
   document.getElementById('result-grade').style.color=color;
   document.getElementById('result-msg').textContent=isParentUnitPracticeMode()
     ?`완료한 정리문제 다시 풀기 결과예요. 이 결과는 ${parentChildViewName} 학생의 기록에 저장되지 않습니다.`
-    :playerName+'님 [정리문제], '+msg;
+    :completedReplayUnitAttempt?'완료 기록은 유지됩니다. 다시 학습한 결과는 완료 알림을 보내지 않아요.':playerName+'님 [정리문제], '+msg;
   document.getElementById('res-score').textContent=pct;
   document.getElementById('res-correct').textContent=correct+'/'+total;
   document.getElementById('res-total').textContent=total;
@@ -10861,6 +10913,16 @@ async function submitExam(auto){
   const allText=examQuestions.map(q=>q.q).join(' | ');
   const attemptCtx=getOrCreateQuizAttemptContext_();
   const entry={name:playerName,score:pct,correct,total,pct,level:'정리문제',unit:UNITS[currentUnit].title,unitKey:currentUnit,pass:isPass,wrongQuestions:wrongText,allQuestions:allText,ts:Date.now(),time:new Date().toLocaleString('ko-KR',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'}),resultId:attemptCtx.resultId,startedAtMs:attemptCtx.startedAtMs,completedAtMs:Date.now()};
+
+  if(completedReplayUnitAttempt){
+    submitted=true;
+    document.getElementById('submit-btn').disabled=true;
+    document.getElementById('submit-btn').textContent='✅ 다시 학습 완료 · 기존 기록 유지';
+    const actions=document.getElementById('result-main-actions');
+    if(actions)actions.style.display=wrongQs.length?'none':'flex';
+    if(wrongQs.length>0)forcedReviewTimer=setTimeout(()=>beginExamWrongReview(wrongQs),1100);
+    return;
+  }
 
   if(isLearningWriteBlocked()){
     submitted=true;
@@ -11196,6 +11258,12 @@ async function submitResult(){
   if(submitted)return;
   quizActiveFlag=false;
   loginTimestamp=Date.now();
+  if(completedReplayUnitAttempt){
+    submitted=true;
+    document.getElementById('submit-btn').disabled=true;
+    document.getElementById('submit-btn').textContent='✅ 다시 학습 완료 · 기존 기록 유지';
+    return;
+  }
   if(!apiConfigured()){
     document.getElementById('submit-btn').textContent='⚠️ 백엔드 설정 필요 (안내 참고)';
     return;
