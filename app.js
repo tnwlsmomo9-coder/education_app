@@ -3894,7 +3894,7 @@ function renderIncompleteUnitsSection(){
           ? `<div class="ht-progress-row"><span class="ht-progress-status">${n.status}</span></div>`
           : renderIncompleteProgressBar(progressLike)}
       </div>
-      <button type="button" class="ht-part-btn" data-action="resume-learning" data-locked="${locked?'true':'false'}" data-lock-message="${lockMessage}" data-type="${rt.type||''}" data-unit-id="${rt.unitId||rt.unitKey||''}" data-part-id="${rt.partId||''}" data-era-id="${rt.eraId||''}" data-summary-id="${rt.summaryId||''}" data-step="${rt.step||''}" data-direct-start="${rt.type==='unit'?'1':'0'}"${locked?' disabled aria-disabled="true"':''}>${buttonLabel}</button>
+      <button type="button" class="ht-part-btn" data-action="resume-learning" data-locked="${locked?'true':'false'}" data-lock-message="${lockMessage}" data-type="${rt.type||''}" data-unit-id="${rt.unitId||rt.unitKey||''}" data-part-id="${rt.partId||''}" data-era-id="${rt.eraId||''}" data-summary-id="${rt.summaryId||''}" data-step="${rt.step||''}" data-direct-start="${rt.type==='unit'?'1':'0'}" onclick="handleResumeLearningElement(this,event)"${locked?' disabled aria-disabled="true"':''}>${buttonLabel}</button>
     </div>`;
   }).join('');
 
@@ -4502,7 +4502,7 @@ async function renderMathLearningCards_(){
     const progress=pickNewerMathConceptProgress_(readMathConceptProgressWithMigration_(playerName,unitId),mathConceptProgressOverviewCache[mathConceptCacheKey_(playerName,unitId)]);
     const completed=progress?.studentKey===playerName&&progress?.unitId===unitId&&progress.completed===true;
     const lock=getMathSequentialLock_(playerName,unitId,content);
-    return `<div class="unit-card${completed?' math-completed':''}${lock.locked?' teacher-locked-content':''}" data-learning-action="math-concept" data-unit-id="${unitId}" role="button" tabindex="${lock.locked?'-1':'0'}" aria-disabled="${lock.locked?'true':'false'}">
+    return `<div class="unit-card${completed?' math-completed':''}${lock.locked?' teacher-locked-content':''}" onclick="openMathConceptLearning('${unitId}')" role="button" tabindex="${lock.locked?'-1':'0'}" aria-disabled="${lock.locked?'true':'false'}">
       <div class="unit-icon">📘</div><div class="unit-info"><div class="unit-title">${mathEscape(previousUnit.title)}</div>
       <div class="unit-sub">${mathEscape(previousUnit.gradeLabel||'수학')} · ${lock.locked?'이전 학습을 먼저 완료해 주세요':(completed?'다시 학습하기':'이전 학습')}</div></div></div>`;
   }).join('');
@@ -6738,7 +6738,7 @@ function renderHomeSummaryCard(){
   let resumeHtml;
   if(nextItem){
     const rt=nextItem.resumeTarget||{};
-    resumeHtml=`<div class="home-resume-row" data-action="resume-learning" data-type="${rt.type||''}" data-unit-id="${rt.unitKey||''}" data-part-id="${rt.partId||''}" data-era-id="${rt.eraId||''}" data-summary-id="${rt.summaryId||''}" data-step="${rt.step||''}" role="button" tabindex="0">
+    resumeHtml=`<div class="home-resume-row" data-action="resume-learning" data-type="${rt.type||''}" data-unit-id="${rt.unitKey||''}" data-part-id="${rt.partId||''}" data-era-id="${rt.eraId||''}" data-summary-id="${rt.summaryId||''}" data-step="${rt.step||''}" role="button" tabindex="0" onclick="handleResumeLearningElement(this,event)">
       <span class="home-resume-label">🔥 오늘 이어하기: ${nextItem.title}</span><span class="home-resume-arrow">›</span>
     </div>`;
   }else{
@@ -11892,65 +11892,6 @@ function toggleSubjectSection(header){
   section.classList.toggle('open');
 }
 
-// 학습 홈의 정적/동적 버튼을 한 곳에서 처리한다. innerHTML 재렌더링 후에도
-// 리스너를 다시 붙일 필요가 없고, 한 번의 탭은 정확히 한 동작만 실행한다.
-function runLearningHomeAction_(element){
-  const uiAction=element.dataset.uiAction;
-  if(uiAction==='toggle-subject'){toggleSubjectSection(element);return;}
-  if(uiAction==='toggle-incomplete'){toggleIncompleteSection();return;}
-  if(uiAction==='toggle-fold'){toggleSectionFold(element.dataset.bodyId,element.dataset.arrowId);return;}
-
-  const learningAction=element.dataset.learningAction;
-  if(!learningAction)return;
-  if(element.getAttribute('aria-disabled')==='true'){
-    showToast2('🔒 '+(element.querySelector('.unit-sub')?.textContent||'이전 학습을 먼저 완료해 주세요.'));
-    return;
-  }
-  if(element.dataset.tapPending==='1')return;
-  element.dataset.tapPending='1';
-  element.classList.add('tap-pending');
-  element.setAttribute('aria-busy','true');
-  let result;
-  try{
-    const unitId=element.dataset.unitId||'';
-    if(learningAction==='math-concept')result=openMathConceptLearning(unitId);
-    else if(learningAction==='math-basic-review')result=openMathBasicConceptReviewForActive_();
-    else if(learningAction==='math-concept-review')result=openMathConceptReviewLearning(unitId);
-    else if(learningAction==='math-wrong-practice')result=openMathWrongPractice();
-  }catch(error){
-    console.error('학습 버튼 실행 실패:',learningAction,error);
-    showToast2('⚠️ 학습 화면을 열지 못했어요.');
-  }
-  Promise.resolve(result).catch(error=>{
-    console.error('학습 버튼 비동기 실행 실패:',learningAction,error);
-    showToast2('⚠️ 학습 화면을 열지 못했어요.');
-  }).finally(()=>{
-    element.dataset.tapPending='0';element.classList.remove('tap-pending');element.removeAttribute('aria-busy');
-  });
-}
-function handleLearningHomeDelegatedActivation_(event){
-  const element=event.target.closest('[data-ui-action],[data-learning-action],[data-action="resume-learning"]');
-  if(!element||!element.closest('#learning-home-view'))return;
-  if(element.closest('#incomplete-units-body'))return;
-  event.preventDefault();event.stopPropagation();
-  if(element.dataset.action==='resume-learning'){handleResumeLearningElement(element,event);return;}
-  runLearningHomeAction_(element);
-}
-onAppDomReady_(()=>{
-  const home=document.getElementById('learning-home-view');
-  if(!home||home.dataset.learningClickBound==='1')return;
-  home.dataset.learningClickBound='1';
-  home.addEventListener('click',handleLearningHomeDelegatedActivation_);
-  home.addEventListener('keydown',event=>{
-    if(event.key!=='Enter'&&event.key!==' ')return;
-    const element=event.target.closest('[data-ui-action],[data-learning-action],[data-action="resume-learning"]');
-    if(!element)return;
-    event.preventDefault();event.stopPropagation();
-    if(element.dataset.action==='resume-learning')handleResumeLearningElement(element,event);else runLearningHomeAction_(element);
-  });
-});
-
-
 // ===== 기존 inline script 4 =====
 function toggleIncompleteSection(){
   incompleteSectionExpanded=!incompleteSectionExpanded;
@@ -13245,8 +13186,8 @@ function isMathFractionAnswerQuestion_(question){return !Array.isArray(question?
 function mathFractionInputHtml_(question,value,answerVariable,extraOnInput=''){
   if(!isMathFractionAnswerQuestion_(question))return '';
   const parts=String(value||'').split('/'),numerator=parts.length===2?parts[0]:'',denominator=parts.length===2?parts[1]:'';
-  const numeratorUpdate=`${answerVariable}=this.value+'/'+this.closest('.math-fraction-input').querySelector('[data-fraction-part=\"denominator\"]').value;${extraOnInput}`;
-  const denominatorUpdate=`${answerVariable}=this.closest('.math-fraction-input').querySelector('[data-fraction-part=\"numerator\"]').value+'/'+this.value;${extraOnInput}`;
+  const numeratorUpdate=`${answerVariable}=this.value+'/'+this.closest('.math-fraction-input').querySelector('[data-fraction-part=denominator]').value;${extraOnInput}`;
+  const denominatorUpdate=`${answerVariable}=this.closest('.math-fraction-input').querySelector('[data-fraction-part=numerator]').value+'/'+this.value;${extraOnInput}`;
   return `<div class="math-fraction-wrap"><p class="math-fraction-guide">위 칸과 아래 칸에 숫자를 입력하세요</p><div class="math-fraction-input" role="group" aria-label="분수 정답 입력"><input class="math-fraction-number" data-fraction-part="numerator" inputmode="decimal" pattern="-?[0-9]*" autocomplete="off" aria-label="분자 입력" placeholder="분자" value="${mathEscape(numerator)}" oninput="${numeratorUpdate}"><div class="math-fraction-line" aria-hidden="true"></div><input class="math-fraction-number" data-fraction-part="denominator" inputmode="numeric" pattern="[0-9]*" autocomplete="off" aria-label="분모 입력" placeholder="분모" value="${mathEscape(denominator)}" oninput="${denominatorUpdate}"></div></div>`;
 }
 function makeMathAttempt(question,value,source){return {questionId:question.id,conceptId:question.conceptId,selectedAnswer:String(value),correct:isMathAnswerCorrect(question,value),attemptedAt:new Date().toISOString(),source};}
