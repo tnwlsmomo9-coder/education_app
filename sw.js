@@ -1,7 +1,7 @@
 const CACHE_NAME = 'samguk-culture-quiz-v60-math-status-badge';
 const ASSETS = [
   './index.html',
-  './app.js?v=20260831-math-pre-submit-1',
+  './app.js?v=20260901-math-fraction-input-1',
   './math-flow-v2.js?v=20260901-flow-2',
   './learning-content.js?v=20260825-content-19',
   './math-content.js?v=20260901-math-5',

@@ -350,6 +350,9 @@ function startLearningContentLoad_(){
     renderStudentCards();
     if(typeof renderUnitGrid==='function') renderUnitGrid();
     if(typeof updateProgressColors==='function') updateProgressColors();
+    // 콘텐츠가 준비되기 전에 열려 있던 역사 화면이 있다면 실제 데이터로 다시 채운다.
+    if(document.getElementById('ht-list-screen')?.style.display==='block' && typeof renderHistoryTrainingList==='function') renderHistoryTrainingList();
+    if(document.getElementById('king-order-screen')?.style.display==='block' && !kingOrderEraId && typeof renderKingOrderList==='function') renderKingOrderList();
     const retryArea=document.getElementById('content-load-retry-area');
     if(retryArea) retryArea.style.display='none';
   }).catch((err)=>{
@@ -357,6 +360,17 @@ function startLearningContentLoad_(){
     const retryArea=document.getElementById('content-load-retry-area');
     if(retryArea) retryArea.style.display='block';
   });
+}
+
+// startLearningContentLoad_()를 세션당 한 번만 시작시키는 가드.
+// 실제 로그인(수학 홈 렌더 이후)이나, 학생 로그인이 없는 세션(교사/학부모 전용 접속)을 위한
+// 지연 폴백 타이머 중 먼저 도달하는 쪽에서 호출된다 — loadLearningContent()는 이미
+// __contentLoadPromise로 중복 네트워크 요청을 막으므로 두 번 호출돼도 안전하다.
+let __learningContentLoadScheduled=false;
+function scheduleLearningContentLoad_(){
+  if(__learningContentLoadScheduled) return;
+  __learningContentLoadScheduled=true;
+  startLearningContentLoad_();
 }
 
 function retryLearningContentLoad(){
@@ -6666,19 +6680,10 @@ async function selectStudent(card,name){
   __releasePrivilegedAuthGate_(window.__privilegedAuthGateState.epoch); // PIN 성공 확정 — gate 해제
   __cancelPendingBackgroundLoads(); // 아직 시작 안 한 초기 백그라운드 조회는 더 이상 진행 안 함(학생 홈은 loadStudentDataIfStale가 필요한 것만 새로 조회)
 
-  // 학습 콘텐츠(UNITS/historyTrainingData)가 아직 준비 안 됐으면, 안전 준비화면을 보여주고
-  // 준비 완료 후 이 함수를 그대로 다시 호출(재진입) — 학생 기록은 아직 아무것도 안 건드림
-  if(!window.__contentReady){
-    showContentPreparingScreen_();
-    loadLearningContent().then(()=>{
-      hideContentPreparingScreen_();
-      selectStudent(card,name); // 콘텐츠 준비 완료 후 자동으로 원래 로그인 흐름 재시도
-    }).catch((err)=>{
-      console.error('학습자료 로드 실패:',err);
-      showContentPreparingScreen_(true); // 재시도 버튼 노출
-    });
-    return;
-  }
+  // 역사 학습 콘텐츠(UNITS/historyTrainingData/KING_ORDER_DATA)는 더 이상 로그인을 막지 않는다.
+  // 수학 홈 렌더는 아래 loadMathConceptContent()만 기다리면 되고, 역사 콘텐츠는
+  // scheduleLearningContentLoad_()가 로그인 이후 백그라운드로 준비한다(콘텐츠가 필요한 화면을
+  // 그 전에 열면 각 화면이 "콘텐츠 준비 중"으로 안전하게 처리하고 준비되는 대로 다시 채운다).
 
   const previousStudent=playerName;
   if(focusModeState.active) endFocusMode(false,true); // 학생 변경 — 이전 학생의 집중모드 종료
@@ -6712,7 +6717,10 @@ async function selectStudent(card,name){
   if(!isDeveloperTestMode()){
     const studentDataPromise=loadStudentDataIfStale(name,false,{cacheAlreadyRestored:studentCacheRestored});
     // 학생별 핵심 데이터가 시작된 뒤에만 초기 공통 조회(공개설정/메모 등)를 재개한다.
-    studentDataPromise.finally(()=>scheduleStartupBackgroundLoads_(0));
+    studentDataPromise.finally(()=>{
+      scheduleStartupBackgroundLoads_(0);
+      scheduleLearningContentLoad_(); // 수학 홈이 이미 렌더된 뒤에 역사 콘텐츠 번들을 백그라운드로 준비
+    });
   }
 
   if(testMode || isDeveloperTestMode()) return; // 관리자/TEST USER는 접속기록 남기지 않음
@@ -8178,9 +8186,11 @@ function completeHistorySummary1(){
 
 function renderHistoryTrainingList(){
   const body=document.getElementById('ht-list-body');
+  // 콘텐츠 번들이 아직 준비 전이면 빈 배열로 처리 — 준비되는 대로 startLearningContentLoad_()가 다시 호출한다.
+  const source=typeof historyTrainingData==='undefined'?[]:historyTrainingData;
   const visibleParts=parentChildViewActive
-    ?historyTrainingData.filter(part=>isContentApproved('historyTraining',part.id) && calculateHistoryTrainingProgress(parentChildViewName,part.id).completed)
-    :historyTrainingData.filter(part=>isContentApproved('historyTraining',part.id));
+    ?source.filter(part=>isContentApproved('historyTraining',part.id) && calculateHistoryTrainingProgress(parentChildViewName,part.id).completed)
+    :source.filter(part=>isContentApproved('historyTraining',part.id));
   body.innerHTML=visibleParts.map(part=>{
     if(part.placeholder){
       return `<div class="ht-part-card" style="opacity:.72;cursor:default">
@@ -11455,8 +11465,11 @@ renderStudentGrid();
 // renderUnitGrid()는 UNITS 데이터가 필요하므로 학습콘텐츠 로드 완료 후로 지연(아래 startLearningContentLoad_ 콜백에서 실행)
 // renderStudentCards() 직접 재호출 제거 — renderStudentGrid() 내부에서 이미 실행되어 중복이었음
 
-// 1-1) 첫 화면이 실제로 그려진 다음 학습 콘텐츠(learning-content.js) 로드 시작
-requestAnimationFrame(()=>{ setTimeout(startLearningContentLoad_, 0); });
+// 1-1) 역사 학습 콘텐츠(learning-content.js)는 더 이상 즉시 시작하지 않는다.
+// 실제 학생 로그인 시 selectStudent()가 수학 홈 렌더 이후 scheduleLearningContentLoad_()를 호출해 시작한다.
+// 아래 타이머는 학생 로그인이 아예 없는 세션(교사/학부모 전용 접속)에서도 결국 콘텐츠가
+// 준비되도록 하는 폴백이며, 로그인 쪽이 먼저 호출하면 이 타이머는 아무 일도 하지 않는다.
+setTimeout(scheduleLearningContentLoad_, 6000);
 
 // 2) PIN은 가장 먼저 한 번만 조회합니다. 완료 전 학생 클릭은 ensurePinMapReady_()가 같은 요청을 기다립니다.
 ensurePinMapReady_().catch(error=>console.error('PIN 목록 초기 로드 실패:',error));
@@ -13256,7 +13269,7 @@ function mathFractionInputHtml_(question,value,answerVariable,extraOnInput=''){
   const parts=String(value||'').split('/'),numerator=parts.length===2?parts[0]:'',denominator=parts.length===2?parts[1]:'';
   const numeratorUpdate=`${answerVariable}=this.value+'/'+this.closest('.math-fraction-input').querySelector('[data-fraction-part=denominator]').value;${extraOnInput}`;
   const denominatorUpdate=`${answerVariable}=this.closest('.math-fraction-input').querySelector('[data-fraction-part=numerator]').value+'/'+this.value;${extraOnInput}`;
-  return `<div class="math-fraction-wrap"><p class="math-fraction-guide">위 칸과 아래 칸에 숫자를 입력하세요</p><div class="math-fraction-input" role="group" aria-label="분수 정답 입력"><input class="math-fraction-number" data-fraction-part="numerator" inputmode="decimal" pattern="-?[0-9]*" autocomplete="off" aria-label="분자 입력" placeholder="분자" value="${mathEscape(numerator)}" oninput="${numeratorUpdate}"><div class="math-fraction-line" aria-hidden="true"></div><input class="math-fraction-number" data-fraction-part="denominator" inputmode="numeric" pattern="[0-9]*" autocomplete="off" aria-label="분모 입력" placeholder="분모" value="${mathEscape(denominator)}" oninput="${denominatorUpdate}"></div></div>`;
+  return `<div class="math-fraction-wrap"><p class="math-fraction-guide">위 칸과 아래 칸에 숫자를 입력하세요</p><div class="math-fraction-input" role="group" aria-label="분수 정답 입력"><input class="math-fraction-number" data-fraction-part="numerator" inputmode="text" pattern="-?[0-9]*" autocomplete="off" aria-label="분자 입력 (음수는 - 기호 포함)" placeholder="분자" value="${mathEscape(numerator)}" oninput="${numeratorUpdate}"><div class="math-fraction-line" aria-hidden="true"></div><input class="math-fraction-number" data-fraction-part="denominator" inputmode="numeric" pattern="[0-9]*" autocomplete="off" aria-label="분모 입력" placeholder="분모" value="${mathEscape(denominator)}" oninput="${denominatorUpdate}"></div></div>`;
 }
 function makeMathAttempt(question,value,source){return {questionId:question.id,conceptId:question.conceptId,selectedAnswer:String(value),correct:isMathAnswerCorrect(question,value),attemptedAt:new Date().toISOString(),source};}
 function hasMathProgressEvidence(progress){
