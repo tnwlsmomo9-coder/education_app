@@ -11649,6 +11649,12 @@ setTimeout(scheduleLearningContentLoad_, 6000);
 
 // 2) PIN은 가장 먼저 한 번만 조회합니다. 완료 전 학생 클릭은 ensurePinMapReady_()가 같은 요청을 기다립니다.
 ensurePinMapReady_().catch(error=>console.error('PIN 목록 초기 로드 실패:',error));
+// 학생 선택 화면의 실제 아바타는 로그인 전에 백그라운드로 복원한다.
+// 이름 카드는 이미 표시된 상태이므로 이 요청을 기다리지 않고, 도착한 경우에만 카드를 다시 그린다.
+apiGetAvatars().then(map=>{
+  if(map&&typeof map==='object'&&!Array.isArray(map))avatarMap=map;
+  if(!playerName)renderStudentCards();
+}).catch(error=>console.error('아바타 초기 로드 실패:',error));
 
 function __isPrivilegedAuthOverlayActuallyOpen_(){
   const ids=['admin-login-overlay','pw-overlay','name-confirm-overlay','parent-pw-overlay'];
