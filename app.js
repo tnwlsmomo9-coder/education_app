@@ -983,6 +983,7 @@ async function apiGetStudyPlanner(name){
 
     return (data&&typeof data==='object'&&!Array.isArray(data))?data:{};
   }catch(error){
+    markServerReadFailure_();
     console.error('getStudyPlanner 요청 실패:',error);
     return {};
   }
@@ -1323,6 +1324,7 @@ async function apiGetKingOrderProgress(name){
       needsMigration:Array.isArray(payload.needsMigration)?payload.needsMigration:[]
     };
   }catch(error){
+    markServerReadFailure_();
     console.error('getKingOrderProgress 요청 실패:',error);
     return {data:{},needsMigration:[]};
   }
@@ -1367,7 +1369,7 @@ async function apiList(){
       const res=await fetch(API_URL+'?action=list');
       const data=await res.json();
       if(Array.isArray(data)) return data;
-    }catch(e){console.error(e);}
+    }catch(e){markServerReadFailure_();console.error(e);}
     await new Promise(r=>setTimeout(r,900)); // 잠깐 대기 후 재시도
   }
   return [];
@@ -1581,24 +1583,55 @@ async function apiListDeadlines(){
 }
 
 let afterMidnightAccessState={loaded:false,serverNowMs:0,receivedAtMs:0,serverKstDate:'',allowed:{}};
+const AFTER_MIDNIGHT_ACCESS_CACHE_KEY='serverUiCache_v1:afterMidnightAccess';
+function restoreAfterMidnightAccessCache_(){
+  try{
+    const cached=JSON.parse(localStorage.getItem(AFTER_MIDNIGHT_ACCESS_CACHE_KEY)||'null'),data=cached?.data;
+    if(!data||typeof data.allowed!=='object')return false;
+    afterMidnightAccessState={loaded:true,serverNowMs:Number(data.serverNowMs)||0,receivedAtMs:Date.now(),serverKstDate:data.serverKstDate||'',allowed:data.allowed||{}};return true;
+  }catch(error){return false;}
+}
+function writeAfterMidnightAccessCache_(){
+  try{localStorage.setItem(AFTER_MIDNIGHT_ACCESS_CACHE_KEY,JSON.stringify({schema:1,savedAt:Date.now(),data:{serverNowMs:trustedServerNowMs_(),serverKstDate:afterMidnightAccessState.serverKstDate,allowed:afterMidnightAccessState.allowed||{}}}));}catch(error){}
+}
+restoreAfterMidnightAccessCache_();
+const MIDNIGHT_LOCK_FORCE_TEST_KEY='midnightLockForceTest_v1';
+let midnightLockForceTest=false;
+try{midnightLockForceTest=sessionStorage.getItem(MIDNIGHT_LOCK_FORCE_TEST_KEY)==='1';}catch(error){}
 function trustedServerNowMs_(){return afterMidnightAccessState.serverNowMs?afterMidnightAccessState.serverNowMs+(Date.now()-afterMidnightAccessState.receivedAtMs):0;}
 function kstDateFromMs_(ms){if(!ms)return '';return new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Seoul',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date(ms));}
 async function apiGetAfterMidnightHomeworkAccess(){
   if(!apiConfigured())return false;
   try{const res=await fetch(API_URL+'?action=getAfterMidnightHomeworkAccess',{cache:'no-store'}),data=await res.json();if(!data?.ok)return false;
-    afterMidnightAccessState={loaded:true,serverNowMs:Date.parse(data.serverNow)||0,receivedAtMs:Date.now(),serverKstDate:data.serverKstDate||'',allowed:data.allowed||{}};return true;
-  }catch(error){console.warn('자정 학습 잠금 조회 실패:',error);return false;}
+    const previous=JSON.stringify(afterMidnightAccessState.allowed||{});
+    afterMidnightAccessState={loaded:true,serverNowMs:Date.parse(data.serverNow)||0,receivedAtMs:Date.now(),serverKstDate:data.serverKstDate||'',allowed:data.allowed||{}};
+    writeAfterMidnightAccessCache_();
+    if(previous!==JSON.stringify(afterMidnightAccessState.allowed||{}))renderAfterMidnightAccessAdmin_();
+    return true;
+  }catch(error){markServerReadFailure_();console.warn('자정 학습 잠금 조회 실패:',error);return false;}
 }
 async function apiSetAfterMidnightHomeworkAccess(name,enabled){
   if(!apiConfigured())return false;
   try{const body=new URLSearchParams();body.set('action','setAfterMidnightHomeworkAccess');body.set('token',adminToken||'');body.set('name',name);body.set('enabled',enabled?'true':'false');
-    const res=await fetch(API_URL,{method:'POST',body}),data=await res.json();handleAdminUnauthorized_(data);if(!data?.ok)return false;await apiGetAfterMidnightHomeworkAccess();return true;
+    const res=await fetch(API_URL,{method:'POST',body}),data=await res.json();handleAdminUnauthorized_(data);if(!data?.ok)return false;__invalidateReadCache('getAfterMidnightHomeworkAccess');await apiGetAfterMidnightHomeworkAccess();return true;
   }catch(error){console.warn('자정 학습 예외 저장 실패:',error);return false;}
 }
 function isAfterMidnightExceptionAllowed_(name){const today=kstDateFromMs_(trustedServerNowMs_());return !!(name&&today&&afterMidnightAccessState.allowed?.[name]===today);}
+function isMidnightLockForceTestActive_(){return midnightLockForceTest===true&&(isAdminSessionActive()||isDeveloperTestMode());}
 function isHomeworkPastDue_(name,dueDate){
-  if(isAdminSessionActive()||isDeveloperTestMode()||!dueDate||!afterMidnightAccessState.loaded||isAfterMidnightExceptionAllowed_(name))return false;
+  if(!dueDate||!afterMidnightAccessState.loaded||isAfterMidnightExceptionAllowed_(name))return false;
+  if(isMidnightLockForceTestActive_())return true;
+  if(isAdminSessionActive()||isDeveloperTestMode())return false;
   return kstDateFromMs_(trustedServerNowMs_())>String(dueDate);
+}
+function setMidnightLockForceTest_(enabled){
+  if(!isAdminSessionActive()&&!isDeveloperTestMode())return false;
+  midnightLockForceTest=enabled===true;
+  try{sessionStorage.setItem(MIDNIGHT_LOCK_FORCE_TEST_KEY,midnightLockForceTest?'1':'0');}catch(error){}
+  renderAfterMidnightAccessAdmin_();
+  if(playerName){renderIncompleteUnitsSection();renderMathLearningCards_();}
+  showToast2(midnightLockForceTest?'🌙 자정 잠금 강제 테스트 ON':'🌙 자정 잠금 강제 테스트 OFF');
+  return true;
 }
 window.isMathHomeworkPastDue=function(name,dueDate){return isHomeworkPastDue_(name,dueDate);};
 function blockExpiredHomeworkStep_(dueDate){if(!isHomeworkPastDue_(playerName,dueDate))return false;showToast2('🔒 오늘 학습 시간이 종료되었습니다.');return true;}
@@ -2864,7 +2897,7 @@ function calculateUnitOverallProgress(name){
   const completed=incompleteCount===0;
   return {
     percent, completedAmount, totalAmount, incompleteCount, completed,
-    status: completed?'완료':(sequentialLock.locked?'이전 학습을 먼저 완료해 주세요':`미완료 ${incompleteCount}개`),
+    status: completed?'완료':`미완료 ${incompleteCount}개`,
     resumeTarget,
     includeInOverall:true
   };
@@ -3365,6 +3398,63 @@ function getHistorySummaryResumeTarget(name){
   return items.length>0 ? items[0].resumeTarget : null;
 }
 
+// 전체 진행률과 미완료 학습은 반드시 같은 필수학습 항목 집합을 사용한다.
+// 한 항목은 완료/미완료 중 하나이며, 진행 중 백분율이나 잠금 여부는 완료 수를 늘리지 않는다.
+function requiredLearningTitle_(moduleKey,itemKey,displayItem){
+  if(displayItem?.title)return displayItem.title;
+  const content=window.MATH_CONTENT||window.MATH_CONCEPT_CONTENT;
+  const unitTitle=content?.units?.[itemKey]?.title||MATH_BASIC_REVIEW_UNIT_TITLES?.[itemKey]||itemKey;
+  if(moduleKey==='mathConcept')return `수학개념학습 · ${unitTitle}`;
+  if(moduleKey==='mathBasicConceptReview')return `수학 기본개념 확인 · ${unitTitle}`;
+  if(moduleKey==='mathConceptReviewLearning')return `수학 개념복습학습 · ${unitTitle}`;
+  if(moduleKey==='mathWrongPractice')return `수학 오답연습 · ${unitTitle}`;
+  return LEARNING_MODULES?.[moduleKey]?.title||String(itemKey);
+}
+function requiredLearningItem_(moduleKey,itemKey,completed,displayItem){
+  return {moduleKey,itemKey,title:requiredLearningTitle_(moduleKey,itemKey,displayItem),completed:completed===true,displayItem:displayItem||null};
+}
+function getRequiredLearningItemsForModule_(name,moduleKey,progress,incompleteItems){
+  const incompleteByKey=new Map((incompleteItems||[]).map(item=>[String(item.itemKey),item]));
+  const content=window.MATH_CONTENT||window.MATH_CONCEPT_CONTENT;
+  const student=STUDENTS.find(item=>item.name===name);
+  let keys=[];
+
+  if(moduleKey==='unit'){
+    keys=getActiveUnitKeys().filter(key=>isContentApproved('unit',key)&&isContentRequiredForStudent('unit',key,name));
+  }else if(moduleKey==='historyTraining'){
+    const assigned=typeof historyTrainingData!=='undefined'&&historyTrainingData.some(part=>isContentApproved('historyTraining',part.id)&&isContentRequiredForStudent('historyTraining',part.id,name));
+    keys=assigned?['historyTraining']:[];
+  }else if(moduleKey==='kingOrder'){
+    keys=getApprovedKingOrderEras_(name).length?['kingOrder']:[];
+  }else if(moduleKey==='mapStudy'){
+    const assigned=typeof MAP_STUDY_PARTS!=='undefined'&&MAP_STUDY_PARTS.some(part=>isContentApproved('mapStudy',part.id)&&isContentRequiredForStudent('mapStudy',part.id,name));
+    keys=assigned?['mapStudy']:[];
+  }else if(moduleKey==='historySummary'){
+    keys=getHistorySummaryConfigIds_(name);
+  }else if(moduleKey==='mathConcept'){
+    keys=student&&content?getAssignedMathUnitIds_(student,content):[];
+  }else if(moduleKey==='mathBasicConceptReview'){
+    keys=student&&content?getAssignedMathUnitIds_(student,content).filter(unitId=>Array.isArray(content.units?.[unitId]?.basicConceptReview)&&content.units[unitId].basicConceptReview.length&&isMathBasicReviewScheduleOpen_(unitId,trustedMathProgressNow_(),content)):[];
+  }else if(moduleKey==='mathConceptReviewLearning'){
+    keys=student&&content?getAssignedMathUnitIds_(student,content).filter(unitId=>content.units?.[unitId]?.conceptReviewLearning):[];
+  }else if(moduleKey==='mathWrongPractice'){
+    // 오답연습은 미해결 오답이 있는 단원만 현재의 필수학습 1개가 된다.
+    keys=(progress.units||[]).filter(unit=>unit.remaining>0).map(unit=>unit.unitId);
+  }
+
+  return keys.map(key=>{
+    const item=incompleteByKey.get(String(key));
+    let completed=!item;
+    // 수학은 브라우저 임시 상태가 아니라 서버에서 복원한 확정 완료만 인정한다.
+    const server=mathServerConfirmedProgressCache[mathConceptCacheKey_(name,key)];
+    if(moduleKey==='mathConcept')completed=server?.completed===true;
+    if(moduleKey==='mathBasicConceptReview')completed=server?.basicConceptReview?.completed===true;
+    if(moduleKey==='mathConceptReviewLearning')completed=server?.conceptReviewLearning?.completed===true;
+    if(moduleKey==='mathWrongPractice')completed=false;
+    return requiredLearningItem_(moduleKey,key,completed,item);
+  });
+}
+
 const LEARNING_MODULES={
   unit:{
     key:'unit', title:'단원 학습', includeInOverall:true,
@@ -3443,8 +3533,7 @@ const USE_UNIFIED_PROGRESS=true;
 // LEARNING_MODULES를 한 번씩만 순회해서 진행률+미완료목록을 함께 계산 (모듈별 중복호출 없음)
 function calculateOverallProgressV2(name){
   const sections=[];
-  let totalCompletedAmount=0, totalAmount=0, overallIncompleteCount=0;
-  let allItems=[];
+  let requiredItems=[];
 
   Object.keys(LEARNING_MODULES).forEach(moduleKey=>{
     const mod=LEARNING_MODULES[moduleKey];
@@ -3456,20 +3545,6 @@ function calculateOverallProgressV2(name){
       progress={percent:0, completed:false, status:'오류', incompleteCount:0, resumeTarget:null, completedAmount:0, totalAmount:100};
     }
     const includeInOverall = mod.includeInOverall!==false && progress.includeInOverall!==false;
-    if(includeInOverall){
-      // 각 모듈 안에서 실제로 필수 배정된 항목 수/분량을 그대로 합산한다.
-      // 반복 가능한 재학습은 분모에 들어오지 않고, 오답연습은 실제 발생한 단원만 들어온다.
-      const moduleTotal=Number(progress.totalAmount);
-      const moduleCompleted=Number(progress.completedAmount);
-      if(Number.isFinite(moduleTotal)&&moduleTotal>0&&Number.isFinite(moduleCompleted)){
-        totalCompletedAmount += Math.max(0,Math.min(moduleTotal,moduleCompleted));
-        totalAmount += moduleTotal;
-      }else{
-        totalCompletedAmount += progress.percent;
-        totalAmount += 100;
-      }
-      if(!progress.completed) overallIncompleteCount++;
-    }
     sections.push(Object.assign({moduleKey}, progress, {includeInOverall}));
 
     let items=[];
@@ -3479,11 +3554,11 @@ function calculateOverallProgressV2(name){
       console.warn('[calculateOverallProgressV2] getIncompleteItems 오류 — 빈 목록으로 대체:', moduleKey, err);
       items=[];
     }
-    allItems=allItems.concat(items);
+    if(includeInOverall)requiredItems=requiredItems.concat(getRequiredLearningItemsForModule_(name,moduleKey,progress,items));
   });
 
-  // 원본 배열은 안 건드리고 복사본만 정렬
-  const sortedItems=allItems.slice().sort((a,b)=>(a.sortOrder||0)-(b.sortOrder||0));
+  // 필수학습 항목에서 완료되지 않은 것만 미완료 목록에 사용한다.
+  const sortedItems=requiredItems.filter(item=>!item.completed&&item.displayItem).map(item=>item.displayItem).sort((a,b)=>(a.sortOrder||0)-(b.sortOrder||0));
   const seen=new Set();
   const dedupedItems=[];
   sortedItems.forEach(item=>{
@@ -3494,8 +3569,10 @@ function calculateOverallProgressV2(name){
     }
   });
 
+  const totalAmount=requiredItems.length;
+  const totalCompletedAmount=requiredItems.filter(item=>item.completed).length;
   const percent = totalAmount>0 ? Math.round((totalCompletedAmount/totalAmount)*100) : 0;
-  const completed = percent>=100 && overallIncompleteCount===0;
+  const completed = totalAmount>0 && totalCompletedAmount===totalAmount;
   const firstAvailableItem=dedupedItems.find(item=>!['mathConcept','mathBasicConceptReview','mathConceptReviewLearning'].includes(item.moduleKey)||item.locked!==true);
   const resumeTarget = firstAvailableItem ? firstAvailableItem.resumeTarget : null;
 
@@ -3504,9 +3581,22 @@ function calculateOverallProgressV2(name){
     incompleteCount: dedupedItems.length,
     incompleteItems: dedupedItems,
     resumeTarget,
-    sections
+    sections,
+    requiredItems,
+    completedAmount:totalCompletedAmount,
+    totalAmount
   };
 }
+
+// 콘솔 검증용: 학생별 실제 분모와 서버 확정 완료 항목을 한눈에 확인한다.
+function logOverallProgressBreakdown(name){
+  const result=calculateOverallProgressV2(name);
+  const rows=result.requiredItems.map(item=>({student:name,module:item.moduleKey,item:item.itemKey,title:item.title,completed:item.completed}));
+  console.table(rows);
+  console.info(`[전체 진행률] ${name}: ${result.completedAmount}/${result.totalAmount} (${result.percent}%)`);
+  return {name,completedAmount:result.completedAmount,totalAmount:result.totalAmount,percent:result.percent,items:rows};
+}
+window.logOverallProgressBreakdown=logOverallProgressBreakdown;
 
 // buildIncompleteLearningItems(name)는 삭제하지 않고 그대로 둠 — 이건 V2 전용 별도 함수
 // calculateOverallProgressV2 결과를 재사용만 하고 모듈 계산을 다시 반복하지 않음
@@ -3804,7 +3894,7 @@ function renderIncompleteUnitsSection(){
           ? `<div class="ht-progress-row"><span class="ht-progress-status">${n.status}</span></div>`
           : renderIncompleteProgressBar(progressLike)}
       </div>
-      <button type="button" class="ht-part-btn" data-action="resume-learning" data-locked="${locked?'true':'false'}" data-lock-message="${lockMessage}" data-type="${rt.type||''}" data-unit-id="${rt.unitId||rt.unitKey||''}" data-part-id="${rt.partId||''}" data-era-id="${rt.eraId||''}" data-summary-id="${rt.summaryId||''}" data-step="${rt.step||''}" data-direct-start="${rt.type==='unit'?'1':'0'}" onclick="handleResumeLearningElement(this,event)"${locked?' disabled aria-disabled="true"':''}>${buttonLabel}</button>
+      <button type="button" class="ht-part-btn" data-action="resume-learning" data-locked="${locked?'true':'false'}" data-lock-message="${lockMessage}" data-type="${rt.type||''}" data-unit-id="${rt.unitId||rt.unitKey||''}" data-part-id="${rt.partId||''}" data-era-id="${rt.eraId||''}" data-summary-id="${rt.summaryId||''}" data-step="${rt.step||''}" data-direct-start="${rt.type==='unit'?'1':'0'}"${locked?' disabled aria-disabled="true"':''}>${buttonLabel}</button>
     </div>`;
   }).join('');
 
@@ -3898,7 +3988,11 @@ function handleIncompleteResumeClick(evt){
   const toggleEl=evt.target.closest('[data-action="toggle-ht-group"]');
   if(toggleEl){
     htGroupExpanded=!htGroupExpanded;
-    renderIncompleteUnitsSection();
+    const card=toggleEl.closest('.ht-group-card');
+    const children=card?.querySelector('.ht-group-children');
+    const arrow=toggleEl.querySelector('.ht-group-arrow');
+    if(children)children.style.display=htGroupExpanded?'flex':'none';
+    if(arrow)arrow.textContent=htGroupExpanded?'▴':'▾';
   }
 }
 
@@ -4127,6 +4221,20 @@ function getServerMathConceptProgress_(name,unitId){
   return progress&&progress.studentKey===name&&progress.unitId===unitId?progress:null;
 }
 
+function trustedMathProgressNow_(){
+  const serverMs=typeof trustedServerNowMs_==='function'?trustedServerNowMs_():0;
+  return serverMs?new Date(serverMs):new Date();
+}
+function isMathUnitAssigned_(unit,now=trustedMathProgressNow_()){
+  if(!unit)return false;
+  if(!unit.scheduledDate)return true;
+  const scheduledDay=mathLocalDayNumber_(unit.scheduledDate),today=mathLocalDayNumber_(now);
+  return scheduledDay!==null&&today!==null&&scheduledDay<=today;
+}
+function getAssignedMathUnitIds_(student,content=window.MATH_CONTENT||window.MATH_CONCEPT_CONTENT){
+  return student&&content?getMathUnitIds_(student,content).filter(unitId=>isMathUnitAssigned_(content.units?.[unitId])):[];
+}
+
 function getMathSequentialLock_(name,targetUnitId,content=window.MATH_CONTENT||window.MATH_CONCEPT_CONTENT){
   const student=STUDENTS.find(s=>s.name===name),unitIds=getMathUnitIds_(student,content),targetIndex=unitIds.indexOf(targetUnitId);
   if(!student||targetIndex<=0)return {locked:false,blocker:null};
@@ -4147,7 +4255,7 @@ function getMathSequentialLock_(name,targetUnitId,content=window.MATH_CONTENT||w
 function calculateMathConceptProgress(name){
   const student=STUDENTS.find(s=>s.name===name);
   const content=window.MATH_CONTENT||window.MATH_CONCEPT_CONTENT;
-  const unitIds=student&&content?getMathUnitIds_(student,content).filter(unitId=>content.units?.[unitId]):[];
+  const unitIds=student&&content?getAssignedMathUnitIds_(student,content):[];
   if(!student || !unitIds.length){
     return {percent:0,completed:true,status:'콘텐츠 준비 중',incompleteCount:0,resumeTarget:null,completedAmount:0,totalAmount:0,includeInOverall:false};
   }
@@ -4198,9 +4306,9 @@ async function loadMathConceptProgressForName_(name){
 function getMathConceptIncompleteItems(name){
   const student=STUDENTS.find(item=>item.name===name),content=window.MATH_CONTENT||window.MATH_CONCEPT_CONTENT;
   if(!student)return [];
-  const unitIds=content?getMathUnitIds_(student,content).filter(unitId=>content.units?.[unitId]):[student.mathUnitId].filter(Boolean);
+  const unitIds=content?getAssignedMathUnitIds_(student,content):[student.mathUnitId].filter(Boolean);
   return unitIds.map((unitId,index)=>{
-    const unit=content?.units?.[unitId],raw=pickNewerMathConceptProgress_(readMathConceptProgressWithMigration_(name,unitId),mathConceptProgressOverviewCache[mathConceptCacheKey_(name,unitId)]),expectedVersion=Number(unit?.contentVersion)||2;
+    const unit=content?.units?.[unitId],raw=getServerMathConceptProgress_(name,unitId),expectedVersion=Number(unit?.contentVersion)||2;
     const valid=!!(raw&&raw.studentKey===name&&raw.unitId===unitId&&Number(raw.contentVersion)===expectedVersion),completed=valid&&raw.completed===true;
     if(completed)return null;
     const lock=content?getMathSequentialLock_(name,unitId,content):{locked:false};
@@ -4226,20 +4334,20 @@ function isMathBasicReviewEligible_(progress,now=new Date(),unitId=progress?.uni
 }
 function getMathBasicConceptReviewUnits_(name,now=new Date()){
   const student=STUDENTS.find(s=>s.name===name);if(!student)return [];
-  return getMathUnitIds_(student).map(unitId=>{const progress=pickNewerMathConceptProgress_(readMathConceptProgressWithMigration_(name,unitId),mathConceptProgressOverviewCache[mathConceptCacheKey_(name,unitId)]);
+  return getAssignedMathUnitIds_(student).map(unitId=>{const progress=getServerMathConceptProgress_(name,unitId);
     if(!progress||progress.studentKey!==name||progress.unitId!==unitId||!isMathBasicReviewEligible_(progress,now,unitId,window.MATH_CONTENT||window.MATH_CONCEPT_CONTENT))return null;
     return {unitId,title:(window.MATH_CONTENT||window.MATH_CONCEPT_CONTENT)?.units?.[unitId]?.title||MATH_BASIC_REVIEW_UNIT_TITLES[unitId]||unitId,completed:progress.basicConceptReview?.completed===true,progress};
   }).filter(Boolean);
 }
-function calculateMathBasicConceptReviewProgress(name){const student=STUDENTS.find(item=>item.name===name),content=window.MATH_CONTENT||window.MATH_CONCEPT_CONTENT,units=student&&content?getMathUnitIds_(student,content).filter(unitId=>Array.isArray(content.units?.[unitId]?.basicConceptReview)&&content.units[unitId].basicConceptReview.length):[],completedCount=units.filter(unitId=>mathServerConfirmedProgressCache[mathConceptCacheKey_(name,unitId)]?.basicConceptReview?.completed===true).length,total=units.length,incompleteCount=total-completedCount;
+function calculateMathBasicConceptReviewProgress(name){const student=STUDENTS.find(item=>item.name===name),content=window.MATH_CONTENT||window.MATH_CONCEPT_CONTENT,units=student&&content?getAssignedMathUnitIds_(student,content).filter(unitId=>Array.isArray(content.units?.[unitId]?.basicConceptReview)&&content.units[unitId].basicConceptReview.length&&isMathBasicReviewScheduleOpen_(unitId,trustedMathProgressNow_(),content)):[],completedCount=units.filter(unitId=>mathServerConfirmedProgressCache[mathConceptCacheKey_(name,unitId)]?.basicConceptReview?.completed===true).length,total=units.length,incompleteCount=total-completedCount;
   return {percent:total?Math.round(completedCount/total*100):100,completed:incompleteCount===0,status:incompleteCount?`미완료 ${incompleteCount}개`:'완료',incompleteCount,
     resumeTarget:incompleteCount?{type:'mathBasicConceptReview',unitId:units.find(unitId=>mathServerConfirmedProgressCache[mathConceptCacheKey_(name,unitId)]?.basicConceptReview?.completed!==true)}:null,completedAmount:completedCount,totalAmount:total,includeInOverall:total>0};}
 function getMathBasicConceptReviewIncompleteItems(name){
   const student=STUDENTS.find(item=>item.name===name),content=window.MATH_CONTENT||window.MATH_CONCEPT_CONTENT;if(!student||!content)return [];
   const eligibleByUnit=new Map(getMathBasicConceptReviewUnits_(name).map(item=>[item.unitId,item]));
-  return getMathUnitIds_(student,content).map((unitId,index)=>{
+  return getAssignedMathUnitIds_(student,content).filter(unitId=>isMathBasicReviewScheduleOpen_(unitId,trustedMathProgressNow_(),content)).map((unitId,index)=>{
     const unit=content.units?.[unitId];if(!unit||!Array.isArray(unit.basicConceptReview)||!unit.basicConceptReview.length)return null;
-    const progress=pickNewerMathConceptProgress_(readMathConceptProgressWithMigration_(name,unitId),mathConceptProgressOverviewCache[mathConceptCacheKey_(name,unitId)]),eligible=eligibleByUnit.get(unitId);
+    const progress=getServerMathConceptProgress_(name,unitId),eligible=eligibleByUnit.get(unitId);
     if(progress?.basicConceptReview?.completed===true)return null;
     const conceptCompleted=progress?.studentKey===name&&progress?.unitId===unitId&&progress.completed===true,locked=!eligible;
     return {moduleKey:'mathBasicConceptReview',itemKey:unitId,title:`수학 기본개념 확인 · ${unit.title}`,subtitle:'수학',percent:0,status:locked?(conceptCompleted?'예정일 다음 날부터 가능':'이전 학습 완료 후 가능'):'학습하기',locked,lockMessage:locked?(conceptCompleted?'예정일 다음 날부터 가능':'이전 학습 완료 후 가능'):'',resumeTarget:{type:'mathBasicConceptReview',unitId,unitKey:unitId},sortOrder:1004+(index*3)};
@@ -4249,15 +4357,15 @@ function getMathBasicConceptReviewResumeTarget(name){return getMathBasicConceptR
 
 function getMathConceptReviewLearningIncompleteItems(name){
   const student=STUDENTS.find(item=>item.name===name),content=window.MATH_CONTENT||window.MATH_CONCEPT_CONTENT;if(!student||!content)return [];
-  return getMathUnitIds_(student,content).map((unitId,index)=>{
+  return getAssignedMathUnitIds_(student,content).map((unitId,index)=>{
     const unit=content.units?.[unitId];if(!unit?.conceptReviewLearning)return null;
-    const progress=pickNewerMathConceptProgress_(readMathConceptProgressWithMigration_(name,unitId),mathConceptProgressOverviewCache[mathConceptCacheKey_(name,unitId)]);
+    const progress=getServerMathConceptProgress_(name,unitId);
     if(progress?.conceptReviewLearning?.completed===true)return null;
     const conceptCompleted=progress?.studentKey===name&&progress?.unitId===unitId&&progress.completed===true,basicCompleted=!Array.isArray(unit.basicConceptReview)||!unit.basicConceptReview.length||progress?.basicConceptReview?.completed===true,priorLocked=getMathSequentialLock_(name,unitId,content).locked,locked=priorLocked||!conceptCompleted||!basicCompleted;
     return {moduleKey:'mathConceptReviewLearning',itemKey:unitId,title:`수학 개념복습학습 · ${unit.title}`,subtitle:'수학',percent:0,status:locked?'이전 학습 완료 후 가능':'학습하기',locked,lockMessage:locked?'이전 학습 완료 후 가능':'',resumeTarget:{type:'mathConceptReviewLearning',unitId,unitKey:unitId},sortOrder:1005+(index*3)};
   }).filter(Boolean);
 }
-function calculateMathConceptReviewLearningProgress(name){const student=STUDENTS.find(item=>item.name===name),content=window.MATH_CONTENT||window.MATH_CONCEPT_CONTENT,units=student&&content?getMathUnitIds_(student,content).filter(unitId=>content.units?.[unitId]?.conceptReviewLearning):[],total=units.length,completedCount=units.filter(unitId=>mathServerConfirmedProgressCache[mathConceptCacheKey_(name,unitId)]?.conceptReviewLearning?.completed===true).length,incompleteCount=total-completedCount,items=getMathConceptReviewLearningIncompleteItems(name);return {percent:total?Math.round(completedCount/total*100):100,completed:incompleteCount===0,status:incompleteCount?`미완료 ${incompleteCount}개`:'완료',incompleteCount,resumeTarget:items.find(item=>!item.locked)?.resumeTarget||null,completedAmount:completedCount,totalAmount:total,includeInOverall:total>0};}
+function calculateMathConceptReviewLearningProgress(name){const student=STUDENTS.find(item=>item.name===name),content=window.MATH_CONTENT||window.MATH_CONCEPT_CONTENT,units=student&&content?getAssignedMathUnitIds_(student,content).filter(unitId=>content.units?.[unitId]?.conceptReviewLearning):[],total=units.length,completedCount=units.filter(unitId=>mathServerConfirmedProgressCache[mathConceptCacheKey_(name,unitId)]?.conceptReviewLearning?.completed===true).length,incompleteCount=total-completedCount,items=getMathConceptReviewLearningIncompleteItems(name);return {percent:total?Math.round(completedCount/total*100):100,completed:incompleteCount===0,status:incompleteCount?`미완료 ${incompleteCount}개`:'완료',incompleteCount,resumeTarget:items.find(item=>!item.locked)?.resumeTarget||null,completedAmount:completedCount,totalAmount:total,includeInOverall:total>0};}
 function getMathConceptReviewLearningResumeTarget(name){return getMathConceptReviewLearningIncompleteItems(name).find(item=>!item.locked)?.resumeTarget||null;}
 
 function findMathWrongConceptId_(unit,questionId){
@@ -4312,16 +4420,17 @@ function getMathWrongPracticeItems_(name){
 function calculateMathWrongPracticeProgress(name){
   const student=STUDENTS.find(s=>s.name===name),content=window.MATH_CONTENT||window.MATH_CONCEPT_CONTENT;
   if(!student||!content)return {percent:100,completed:true,status:'완료',incompleteCount:0,resumeTarget:null,completedAmount:0,totalAmount:0,includeInOverall:false,remainingCount:0};
-  const units=getMathUnitIds_(student,content).map(unitId=>{
+  const units=getAssignedMathUnitIds_(student,content).map(unitId=>{
     const progress=mathServerConfirmedProgressCache[mathConceptCacheKey_(name,unitId)];
     if(!progress||progress.studentKey!==name||progress.unitId!==unitId)return null;
     const items=Object.values(progress.wrongPractice?.items||{}).filter(item=>item&&item.unitId===unitId);
-    if(!items.length)return null;
-    return {unitId,title:content.units?.[unitId]?.title||unitId,remaining:items.filter(item=>item.resolved!==true).length};
+    const remaining=items.filter(item=>item.resolved!==true).length;
+    if(!remaining)return null;
+    return {unitId,title:content.units?.[unitId]?.title||unitId,remaining};
   }).filter(Boolean);
-  const total=units.length,completedCount=units.filter(unit=>unit.remaining===0).length,remainingCount=units.reduce((sum,unit)=>sum+unit.remaining,0),incompleteCount=total-completedCount;
-  return {percent:total?Math.round(completedCount/total*100):100,completed:incompleteCount===0,status:incompleteCount?`${remainingCount}문제 남음`:'완료',incompleteCount,
-    resumeTarget:incompleteCount?{type:'mathWrongPractice'}:null,completedAmount:completedCount,totalAmount:total,includeInOverall:total>0,remainingCount,units};
+  const total=units.length,remainingCount=units.reduce((sum,unit)=>sum+unit.remaining,0),incompleteCount=total;
+  return {percent:total?0:100,completed:total===0,status:total?`${remainingCount}문제 남음`:'완료',incompleteCount,
+    resumeTarget:total?{type:'mathWrongPractice'}:null,completedAmount:0,totalAmount:total,includeInOverall:total>0,remainingCount,units};
 }
 function getMathWrongPracticeIncompleteItems(name){
   const progress=calculateMathWrongPracticeProgress(name);
@@ -4393,7 +4502,7 @@ async function renderMathLearningCards_(){
     const progress=pickNewerMathConceptProgress_(readMathConceptProgressWithMigration_(playerName,unitId),mathConceptProgressOverviewCache[mathConceptCacheKey_(playerName,unitId)]);
     const completed=progress?.studentKey===playerName&&progress?.unitId===unitId&&progress.completed===true;
     const lock=getMathSequentialLock_(playerName,unitId,content);
-    return `<div class="unit-card${completed?' math-completed':''}${lock.locked?' teacher-locked-content':''}" onclick="openMathConceptLearning('${unitId}')" aria-disabled="${lock.locked?'true':'false'}">
+    return `<div class="unit-card${completed?' math-completed':''}${lock.locked?' teacher-locked-content':''}" data-learning-action="math-concept" data-unit-id="${unitId}" role="button" tabindex="${lock.locked?'-1':'0'}" aria-disabled="${lock.locked?'true':'false'}">
       <div class="unit-icon">📘</div><div class="unit-info"><div class="unit-title">${mathEscape(previousUnit.title)}</div>
       <div class="unit-sub">${mathEscape(previousUnit.gradeLabel||'수학')} · ${lock.locked?'이전 학습을 먼저 완료해 주세요':(completed?'다시 학습하기':'이전 학습')}</div></div></div>`;
   }).join('');
@@ -5380,6 +5489,51 @@ let accessLoggedNames=new Set();
 let accessLogCache=[];
 let studentDataLoadedAt={};        // { 학생이름: 마지막 서버조회 완료 시각(ms) }
 let studentDataLoadingPromises={}; // { 학생이름: 진행 중인 조회 Promise } — 동일 학생 중복요청 방지
+const SERVER_UI_CACHE_SCHEMA=1;
+const SERVER_UI_CACHE_PREFIX='serverUiCache_v1';
+let serverReadFailureAt_=0;
+function markServerReadFailure_(){serverReadFailureAt_=Date.now();}
+function serverUiCacheKey_(scope,id=''){return `${SERVER_UI_CACHE_PREFIX}:${scope}${id?':'+encodeURIComponent(String(id)):''}`;}
+function readServerUiCache_(scope,id=''){
+  try{
+    const value=JSON.parse(localStorage.getItem(serverUiCacheKey_(scope,id))||'null');
+    return value?.schema===SERVER_UI_CACHE_SCHEMA&&value.data&&typeof value.data==='object'?value:null;
+  }catch(error){return null;}
+}
+function writeServerUiCache_(scope,id,data){
+  try{localStorage.setItem(serverUiCacheKey_(scope,id),JSON.stringify({schema:SERVER_UI_CACHE_SCHEMA,savedAt:Date.now(),data}));return true;}catch(error){return false;}
+}
+function studentServerSnapshot_(name){
+  const content=window.MATH_CONTENT||window.MATH_CONCEPT_CONTENT;
+  const student=STUDENTS.find(item=>item.name===name);
+  const math={};
+  if(student&&content)getMathUnitIds_(student,content).forEach(unitId=>{
+    const unit=content.units?.[unitId],progress=mathServerConfirmedProgressCache[mathConceptCacheKey_(name,unitId)];
+    if(unit&&progress&&Number(progress.contentVersion)===Number(unit.contentVersion||2))math[unitId]={contentVersion:Number(unit.contentVersion||2),progress};
+  });
+  return {
+    entries:(allEntriesCache||[]).filter(entry=>entry?.name===name),
+    historyTraining:historyTrainingProgress?.[name]||{},mapStudy:mapStudyCache?.[name]||{},
+    kingOrder:kingOrderProgressCache?.[name]||{},studyPlanner:studyPlannerCache?.[name]||{},
+    studyTime:studyTimeServerCache?.[name]||{},math
+  };
+}
+function restoreStudentServerSnapshot_(name){
+  const cached=readServerUiCache_('student',name),data=cached?.data;if(!data)return false;
+  allEntriesCache=(allEntriesCache||[]).filter(entry=>entry?.name!==name).concat(Array.isArray(data.entries)?data.entries:[]);
+  historyTrainingProgress=historyTrainingProgress||{};historyTrainingProgress[name]=data.historyTraining||{};
+  mapStudyCache[name]=normalizeMapStudyData(data.mapStudy||{});kingOrderProgressCache[name]=normalizeKingOrderProgress_(data.kingOrder||{});
+  studyPlannerCache[name]=data.studyPlanner||{};studyTimeServerCache[name]=data.studyTime||{};
+  const content=window.MATH_CONTENT||window.MATH_CONCEPT_CONTENT;
+  Object.keys(data.math||{}).forEach(unitId=>{
+    const item=data.math[unitId],unit=content?.units?.[unitId];
+    if(!unit||Number(item?.contentVersion)!==Number(unit.contentVersion||2))return; // 콘텐츠 버전 변경 시 자동 무효화
+    const progress=item.progress;
+    if(progress?.studentKey===name&&progress?.unitId===unitId){mathConceptProgressOverviewCache[mathConceptCacheKey_(name,unitId)]=progress;rememberConfirmedMathProgress_(progress);}
+  });
+  return true;
+}
+function studentServerSnapshotFingerprint_(name){try{return JSON.stringify(studentServerSnapshot_(name));}catch(error){return '';}}
 
 // 학생 선택 화면 카드의 진행률/공부시간/마지막접속이 "서버 데이터 도착 전 임시값"으로
 // 잠깐 보이는 문제를 막기 위한 상태. true가 되기 전엔 카드에 스켈레톤만 표시한다.
@@ -5428,6 +5582,12 @@ function loadStudentDataIfStale(name, forceRefresh=false){
   if(!name) return Promise.resolve();
   const now=Date.now();
 
+  // 이전 서버 성공 스냅샷을 먼저 적용해 빈 화면 없이 즉시 표시하고, 아래 조회로 최신화한다.
+  const restoredFromCache=restoreStudentServerSnapshot_(name);
+  const beforeFingerprint=studentServerSnapshotFingerprint_(name);
+  const requestStartedAt=Date.now();
+  if(restoredFromCache&&playerName===name)refreshStudentProgressUI(name,{includeStudentList:false});
+
   if(!forceRefresh && studentDataLoadedAt[name] && (now-studentDataLoadedAt[name]<5000)){
     return Promise.resolve(); // 최근에 이미 불러왔으면 생략
   }
@@ -5438,7 +5598,7 @@ function loadStudentDataIfStale(name, forceRefresh=false){
   const requestedName=name; // 응답 도착 시점에 학생이 바뀌었는지 비교하기 위한 스냅샷
 
   const promise=Promise.allSettled([
-    apiList().then(entries=>{ if(Array.isArray(entries)) allEntriesCache=entries; }),
+    apiList().then(entries=>{ if(Array.isArray(entries)&&(entries.length>0||!restoredFromCache||navigator.onLine!==false)) allEntriesCache=entries; }),
     loadHistoryTrainingProgressForName_(requestedName), // 전체 학생이 아니라 이 학생 것만 가볍게 조회
     loadScore(),
     loadMapStudyProgress(requestedName),
@@ -5447,10 +5607,14 @@ function loadStudentDataIfStale(name, forceRefresh=false){
     loadMathConceptProgressForName_(requestedName)
   ]).then(()=>{
     studentDataLoadedAt[requestedName]=Date.now();
+    const afterFingerprint=studentServerSnapshotFingerprint_(requestedName);
+    writeServerUiCache_('student',requestedName,studentServerSnapshot_(requestedName));
     // 응답이 늦게 와서 그 사이 다른 학생으로 바뀌었다면, 지금 화면은 덮어쓰지 않음
-    if(playerName===requestedName){
+    // 서버 값이 캐시와 같으면 불필요한 재렌더링을 하지 않는다.
+    if(playerName===requestedName&&(!restoredFromCache||beforeFingerprint!==afterFingerprint)){
       refreshStudentProgressUI(requestedName, {includeStudentList:false});
     }
+    if(playerName===requestedName&&restoredFromCache&&(navigator.onLine===false||serverReadFailureAt_>=requestStartedAt))showToast2('최신 정보를 불러오지 못했습니다.');
   }).finally(()=>{
     delete studentDataLoadingPromises[requestedName];
   });
@@ -5669,6 +5833,7 @@ function toggleTestMode(){
 
 
 let adminToken=null; // 0단계: 메모리 변수에만 보관, localStorage 저장 안 함 (새로고침 시 사라짐 → 재로그인 필요, 의도된 동작)
+let teacherAfterMidnightAccessActive=false;
 
 // 5단계 권한분리 수정: isAdminSessionActive()(=testMode)만으로 상세조회를 허용하면
 // 선생님확인·개발자테스트모드도 testMode/유사상태를 공유해 버튼이 새는 문제가 있었음.
@@ -5698,6 +5863,7 @@ function handleAdminUnauthorized_(data){
   if(data && data.error==='unauthorized'){
     adminToken=null;
     adminDetailAccessActive=false; // 토큰 만료 시 상세조회 권한도 함께 초기화
+    teacherAfterMidnightAccessActive=false;
     if(typeof closeStudentDetailPanel==='function') closeStudentDetailPanel(); // 열려있던 상세기록 즉시 닫고 DOM·상태 비움
     if(typeof renderStudentCards==='function') renderStudentCards(); // 상세 기록 버튼이 즉시 사라지도록 재렌더링
     if(typeof showToast2==='function') showToast2('⚠️ 관리자 인증이 만료됐어요. 다시 로그인해주세요.');
@@ -6572,7 +6738,7 @@ function renderHomeSummaryCard(){
   let resumeHtml;
   if(nextItem){
     const rt=nextItem.resumeTarget||{};
-    resumeHtml=`<div class="home-resume-row" data-action="resume-learning" data-type="${rt.type||''}" data-unit-id="${rt.unitKey||''}" data-part-id="${rt.partId||''}" data-era-id="${rt.eraId||''}" data-summary-id="${rt.summaryId||''}" data-step="${rt.step||''}" onclick="handleResumeLearningElement(this,event)">
+    resumeHtml=`<div class="home-resume-row" data-action="resume-learning" data-type="${rt.type||''}" data-unit-id="${rt.unitKey||''}" data-part-id="${rt.partId||''}" data-era-id="${rt.eraId||''}" data-summary-id="${rt.summaryId||''}" data-step="${rt.step||''}" role="button" tabindex="0">
       <span class="home-resume-label">🔥 오늘 이어하기: ${nextItem.title}</span><span class="home-resume-arrow">›</span>
     </div>`;
   }else{
@@ -9443,6 +9609,7 @@ async function apiListTimelineGame(){
     }
     return (payload&&typeof payload==='object')?payload:{};
   }catch(error){
+    markServerReadFailure_();
     console.error('listTimelineGame 요청 실패:',error);
     return {};
   }
@@ -9473,7 +9640,7 @@ async function apiGetMapStudy(name){
       return {};
     }
     return payload.data&&typeof payload.data==='object'?payload.data:(payload.mapStudy&&typeof payload.mapStudy==='object'?payload.mapStudy:payload);
-  }catch(e){console.error('getMapStudy 요청 실패:',e);return {};}
+  }catch(e){markServerReadFailure_();console.error('getMapStudy 요청 실패:',e);return {};}
 }
 
 async function apiSetHistoryTraining(name,partId,data){
@@ -9509,13 +9676,14 @@ async function apiGetHistoryTraining(name){
     const res=await fetch(API_URL+'?action=getHistoryTraining&name='+encodeURIComponent(name),{cache:'no-store'});
     const data=await res.json();
     return (data&&typeof data==='object')?data:{};
-  }catch(e){console.error(e);return {};}
+  }catch(e){markServerReadFailure_();console.error(e);return {};}
 }
 
 // ===== 화이트리스트 읽기 API에만 single-flight+10초 캐시 적용 =====
 // verifyPin/adminLogin/verifyAdminPasswordOnly/setPin/resetPin/submit/저장·수정·삭제/
 // logAccess/logLogin/logLearningEvent/correctResult/토큰 요청은 절대 포함하지 않음
 apiGetContentVisibility=__wrapReadApi(apiGetContentVisibility, ()=>'getContentVisibility');
+apiGetContentRequirement=__wrapReadApi(apiGetContentRequirement, ()=>'getContentRequirement');
 apiList=__wrapReadApi(apiList, ()=>'list');
 apiGetAvatars=__wrapReadApi(apiGetAvatars, ()=>'getAvatars');
 apiListNotes=__wrapReadApi(apiListNotes, ()=>'listNotes');
@@ -9530,6 +9698,11 @@ apiGetMapStudy=__wrapReadApi(apiGetMapStudy, (name)=>'getMapStudy:'+name);
 apiGetStudyPlanner=__wrapReadApi(apiGetStudyPlanner, (name)=>'getStudyPlanner:'+name);
 apiGetKingOrderProgress=__wrapReadApi(apiGetKingOrderProgress, (name)=>'getKingOrderProgress:'+name);
 apiListKingOrderProgress=__wrapReadApi(apiListKingOrderProgress, ()=>'listKingOrderProgress');
+apiGetAfterMidnightHomeworkAccess=__wrapReadApi(apiGetAfterMidnightHomeworkAccess, ()=>'getAfterMidnightHomeworkAccess');
+apiGetMathConceptProgress=__wrapReadApi(apiGetMathConceptProgress, (name,unitId)=>{
+  const content=window.MATH_CONTENT||window.MATH_CONCEPT_CONTENT;
+  return `getMathConceptProgress:${name}:${unitId}:${Number(content?.units?.[unitId]?.contentVersion||2)}`;
+});
 // getMessages는 markRead=true(읽음처리, 부작용 있음)일 때는 캐시를 우회해야 하므로 별도 래핑
 const __apiGetMessagesOriginal=apiGetMessages;
 apiGetMessages=function(name,role,markRead){
@@ -9548,19 +9721,24 @@ function __wrapAuditApi(fn){
 function __wrapInvalidateOnSave(fn, invalidateFn){
   return async function(...args){
     const result=await fn.apply(this,args);
-    try{ invalidateFn(...args); }catch(e){}
+    try{ invalidateFn(...args,result); }catch(e){}
     return result;
   };
 }
-apiSubmit=__wrapInvalidateOnSave(apiSubmit, ()=>__invalidateReadCache('list'));
+function cacheStudentSnapshotAfterSave_(name,result){
+  const ok=result===true||result?.ok===true;
+  if(ok&&name)writeServerUiCache_('student',name,studentServerSnapshot_(name));
+}
+apiSubmit=__wrapInvalidateOnSave(apiSubmit, (entry,result)=>{__invalidateReadCache('list');cacheStudentSnapshotAfterSave_(entry?.name,result);});
 apiCorrectResult=__wrapInvalidateOnSave(apiCorrectResult, ()=>__invalidateReadCache('list'));
 apiSetTimelineGame=__wrapInvalidateOnSave(apiSetTimelineGame, ()=>__invalidateReadCache('listTimelineGame'));
-apiSetHistoryTraining=__wrapInvalidateOnSave(apiSetHistoryTraining, ()=>__invalidateReadCache('listHistoryTraining'));
-apiSetMapStudy=__wrapInvalidateOnSave(apiSetMapStudy, (name)=>__invalidateReadCache('getMapStudy:'+name));
-apiSetStudyPlanner=__wrapInvalidateOnSave(apiSetStudyPlanner, (name)=>__invalidateReadCache('getStudyPlanner:'+name));
-apiSetKingOrderEraComplete=__wrapInvalidateOnSave(apiSetKingOrderEraComplete, (name)=>{
+apiSetHistoryTraining=__wrapInvalidateOnSave(apiSetHistoryTraining, (name,_partId,_data,result)=>{__invalidateReadCache('listHistoryTraining');__invalidateReadCache('getHistoryTraining:'+name);cacheStudentSnapshotAfterSave_(name,result);});
+apiSetMapStudy=__wrapInvalidateOnSave(apiSetMapStudy, (name,_data,result)=>{__invalidateReadCache('getMapStudy:'+name);cacheStudentSnapshotAfterSave_(name,result);});
+apiSetStudyPlanner=__wrapInvalidateOnSave(apiSetStudyPlanner, (name,_plans,result)=>{__invalidateReadCache('getStudyPlanner:'+name);cacheStudentSnapshotAfterSave_(name,result);});
+apiSetKingOrderEraComplete=__wrapInvalidateOnSave(apiSetKingOrderEraComplete, (name,_eraId,_completedAt,result)=>{
   __invalidateReadCache('getKingOrderProgress:'+name);
   __invalidateReadCache('listKingOrderProgress');
+  cacheStudentSnapshotAfterSave_(name,result);
 });
 apiSendMessage=__wrapInvalidateOnSave(apiSendMessage, (name)=>__invalidateReadCache('getMessages:'+name));
 apiDeleteMessage=__wrapInvalidateOnSave(apiDeleteMessage, (name)=>__invalidateReadCache('getMessages:'+name));
@@ -9975,7 +10153,7 @@ async function checkPassword(){
     confirmButton.textContent='확인 중...';
   }
   try{
-    const result=await apiVerifyAdminPasswordOnly(pw);
+    const result=await apiAdminLogin(pw);
     if(!result || !result.ok){
       document.getElementById('pw-error').textContent = (result && result.error==='ADMIN_PASSWORD_NOT_CONFIGURED')
         ? '관리자 비밀번호가 아직 설정되지 않았어요. 관리자에게 문의해주세요.'
@@ -9983,11 +10161,11 @@ async function checkPassword(){
       return;
     }
     window.__perfMark&&window.__perfMark('선생님 비밀번호창 닫힘(성공)');
-    // 선생님확인은 조회 전용 화면 — adminToken은 절대 저장하지 않음(전체 관리자 권한 미부여)
-    // 관리자 로그인 상태에서 전환하는 경우 기존 토큰을 그대로 남겨두지 않고 여기서 확실히 폐기함
+    // 자정 허용 토글에만 기존 관리자 토큰을 사용한다. 상세관리 권한은 열지 않는다.
     const previousAdminToken=adminToken;
     adminDetailAccessActive=false;
-    adminToken=null;
+    adminToken=result.token;
+    teacherAfterMidnightAccessActive=true;
     if(typeof closeStudentDetailPanel==='function') closeStudentDetailPanel(); // 상세패널 DOM·학생데이터·cursor 전부 초기화
     if(previousAdminToken){
       apiAdminLogout(previousAdminToken).catch(err=>console.error('기존 관리자 토큰 폐기 실패(무시하고 화면 전환 진행):',err));
@@ -10132,12 +10310,22 @@ function toggleTeacherGlobalManagement(){
   if(arrow) arrow.textContent=isHidden?'▴':'▾';
 }
 
+const afterMidnightAccessPending_={};
+function canManageAfterMidnightAccess_(){return (teacherAfterMidnightAccessActive&&typeof adminToken==='string'&&adminToken.trim().length>0)||canViewStudentDetail_()||isAdminSessionActive()||isDeveloperTestMode();}
+function afterMidnightStudentToggleHtml_(name){
+  if(!canManageAfterMidnightAccess_())return '';
+  const enabled=isAfterMidnightExceptionAllowed_(name),pending=afterMidnightAccessPending_[name]===true;
+  return `<div class="date-reset-row after-midnight-student-row"><span style="flex:1"><strong>🌙 자정 이후 학습 허용</strong><small style="display:block;color:var(--muted);margin-top:3px">허용 시 오늘 자정 이후에도 학습할 수 있습니다. 다음 날 자동 해제됩니다.</small></span><button class="date-reset-btn" onclick="event.stopPropagation();setAfterMidnightAccessUI_('${name}',${enabled?'false':'true'},this)"${pending?' disabled aria-disabled="true"':''}>${pending?'저장 중…':enabled?'ON · 해제':'OFF · 허용'}</button></div>`;
+}
+
 function renderAfterMidnightAccessAdmin_(){
   const root=document.getElementById('after-midnight-access-admin');if(!root)return;
+  if(!canManageAfterMidnightAccess_()){root.innerHTML='';root.style.display='none';return;}root.style.display='block';
   const today=kstDateFromMs_(trustedServerNowMs_())||afterMidnightAccessState.serverKstDate;
-  root.innerHTML=`<div style="font-weight:900;color:var(--sand);margin:4px 0 8px">🌙 자정 이후 학습 허용 · 오늘만</div><div style="font-size:11px;color:var(--muted);margin-bottom:9px">서버 KST ${today||'확인 중'} 기준</div>${STUDENTS.map(student=>{const enabled=isAfterMidnightExceptionAllowed_(student.name);return `<div class="date-reset-row"><span style="flex:1">${student.name}</span><button class="date-reset-btn" onclick="setAfterMidnightAccessUI_('${student.name}',${enabled?'false':'true'})">${enabled?'허용 해제':'오늘 허용'}</button></div>`;}).join('')}<div class="date-reset-row"><button class="date-reset-btn" onclick="setAfterMidnightAccessUI_('__ALL__',true)">전체 학생 오늘 허용</button><button class="date-reset-btn" onclick="setAfterMidnightAccessUI_('__ALL__',false)">전체 해제</button></div>`;
+  const allAllowed=STUDENTS.length>0&&STUDENTS.every(student=>isAfterMidnightExceptionAllowed_(student.name)),pending=afterMidnightAccessPending_.__ALL__===true;
+  root.innerHTML=`<div style="font-weight:900;color:var(--sand);margin:4px 0 8px">🌙 전체 학생 자정 이후 학습 허용</div><div class="date-reset-row"><span style="flex:1"><strong>전체 상태 · ${allAllowed?'ON':'OFF'}</strong><small style="display:block;color:var(--muted);margin-top:3px">허용 시 오늘 자정 이후에도 학습할 수 있습니다. 다음 날 자동 해제됩니다.<br>서버 KST ${today||'확인 중'} 기준</small></span><button class="date-reset-btn" onclick="setAfterMidnightAccessUI_('__ALL__',${allAllowed?'false':'true'},this)"${pending?' disabled aria-disabled="true"':''}>${pending?'저장 중…':allAllowed?'전체 해제':'전체 허용'}</button></div>${isAdminSessionActive()||isDeveloperTestMode()?`<div class="date-reset-row"><span style="flex:1">자정 잠금 강제 테스트</span><button class="date-reset-btn" onclick="setMidnightLockForceTest_(${midnightLockForceTest?'false':'true'})">${midnightLockForceTest?'ON · 끄기':'OFF · 켜기'}</button></div>`:''}`;
 }
-async function setAfterMidnightAccessUI_(name,enabled){const ok=await apiSetAfterMidnightHomeworkAccess(name,enabled);if(!ok){showToast2('⚠️ 자정 학습 허용 저장에 실패했어요.');return;}renderAfterMidnightAccessAdmin_();showToast2(enabled?'✅ 오늘 자정 이후 학습을 허용했어요.':'✅ 자정 이후 학습 허용을 해제했어요.');}
+async function setAfterMidnightAccessUI_(name,enabled,button){if(!canManageAfterMidnightAccess_()||afterMidnightAccessPending_[name])return false;afterMidnightAccessPending_[name]=true;if(button){button.disabled=true;button.setAttribute('aria-disabled','true');button.textContent='저장 중…';}const ok=await apiSetAfterMidnightHomeworkAccess(name,enabled);delete afterMidnightAccessPending_[name];renderAfterMidnightAccessAdmin_();document.querySelectorAll('[data-after-midnight-student]').forEach(el=>{el.innerHTML=afterMidnightStudentToggleHtml_(el.dataset.afterMidnightStudent);});if(!ok){showToast2('⚠️ 저장에 실패해 이전 서버 상태로 되돌렸어요.');return false;}const cached=readServerUiCache_('teacher');if(cached?.data)writeServerUiCache_('teacher','',{...cached.data,gridHtml:document.getElementById('teacher-result-grid')?.innerHTML||cached.data.gridHtml,accessHtml:document.getElementById('after-midnight-access-admin')?.innerHTML||cached.data.accessHtml});showToast2(enabled?'✅ 오늘 자정 이후 학습을 허용했어요.':'✅ 자정 이후 학습 허용을 해제했어요.');return true;}
 
 function computeCompletionPercent(name, allEntries){
   const mine=allEntries.filter(e=>e.name===name);
@@ -10206,13 +10394,27 @@ async function saveDeadlineUI(key){
 }
 
 let teacherRenderToken=0; // 빠른 재진입/느린 응답이 이전 통계를 덮어쓰지 않도록 하는 가드
+function teacherServerFingerprint_(entries,accessLog,studyTimeMap,kingOrderMap){
+  try{return JSON.stringify({entries,accessLog,studyTimeMap,kingOrderMap,historyTrainingProgress,math:STUDENTS.map(student=>studentServerSnapshot_(student.name).math),afterMidnight:afterMidnightAccessState.allowed||{}});}catch(error){return '';}
+}
+function restoreTeacherServerSnapshot_(){
+  const cached=readServerUiCache_('teacher'),data=cached?.data;if(!data?.gridHtml)return null;
+  const grid=document.getElementById('teacher-result-grid'),stats=document.getElementById('teacher-stat-summary'),access=document.getElementById('after-midnight-access-admin');
+  if(grid)grid.innerHTML=data.gridHtml;if(stats)stats.innerHTML=data.statHtml||'';if(access)access.innerHTML=data.accessHtml||'';
+  return data;
+}
+function writeTeacherServerSnapshot_(fingerprint){
+  writeServerUiCache_('teacher','',{fingerprint,gridHtml:document.getElementById('teacher-result-grid')?.innerHTML||'',statHtml:document.getElementById('teacher-stat-summary')?.innerHTML||'',accessHtml:document.getElementById('after-midnight-access-admin')?.innerHTML||''});
+}
 
 async function showTeacherNoAuth(){
   viewerModeActive=true; // 선생님 확인 화면에서는 학습시간 측정/저장 안 함
   if(focusModeState.active) endFocusMode(false,true);
   const myToken=++teacherRenderToken;
+  const requestStartedAt=Date.now();
   const grid=document.getElementById('teacher-result-grid');
-  grid.innerHTML='<div class="lb-empty">불러오는 중...</div>';
+  const cachedTeacher=restoreTeacherServerSnapshot_();
+  if(!cachedTeacher)grid.innerHTML='<div class="lb-empty">불러오는 중...</div>';
   await loadContentVisibility(true);
   renderContentApprovalPanel();
 
@@ -10232,10 +10434,18 @@ async function showTeacherNoAuth(){
   ]);
   await apiGetAfterMidnightHomeworkAccess();renderAfterMidnightAccessAdmin_();
 
+  if(cachedTeacher&&(navigator.onLine===false||serverReadFailureAt_>=requestStartedAt)){showToast2('최신 정보를 불러오지 못했습니다.');return;}
+
   if(myToken!==teacherRenderToken) return; // 그 사이 다시 열렸다면 이 응답은 버림
   allEntriesCache=allEntries;
   studyTimeServerCache=studyTimeMap;
   applyKingOrderProgressMap_(kingOrderMap);
+  STUDENTS.forEach(student=>writeServerUiCache_('student',student.name,studentServerSnapshot_(student.name)));
+  const teacherFingerprint=teacherServerFingerprint_(allEntries,accessLog,studyTimeMap,kingOrderMap);
+  if(cachedTeacher?.fingerprint===teacherFingerprint){
+    window.__perfMark&&window.__perfMark('선생님 서버 데이터 변경없음');
+    return;
+  }
   window.__perfMark&&window.__perfMark('showTeacherNoAuth 데이터수신완료');
 
   // 상단 요약 통계 (실제 계산 가능한 데이터만 사용) — getUnifiedProgressForUI로 통일 (V2 오류 시 자동 폴백)
@@ -10346,6 +10556,7 @@ async function showTeacherNoAuth(){
             <div class="src-progress-bar small"><div class="src-progress-fill" style="width:${completionBreakdown.learningContent}%"></div></div>
           </div>
         </div>
+        <div data-after-midnight-student="${s.name}">${afterMidnightStudentToggleHtml_(s.name)}</div>
         ${(()=>{
           const t=getStudyTimeSummary(s.name);
           return `<div class="src-progress" style="margin-top:10px">
@@ -10377,6 +10588,7 @@ async function showTeacherNoAuth(){
       </div>`;
     grid.appendChild(c);
   });
+  writeTeacherServerSnapshot_(teacherFingerprint);
   window.__perfMark&&window.__perfMark('선생님 결과화면 렌더링완료');
 }
 
@@ -11086,6 +11298,7 @@ function retryQuiz(){
   startQuiz();
 }
 function goHome(){
+  if(teacherAfterMidnightAccessActive){const tokenToClose=adminToken;teacherAfterMidnightAccessActive=false;adminToken=null;adminDetailAccessActive=false;if(tokenToClose)apiAdminLogout(tokenToClose).catch(error=>console.warn('선생님 자정 허용 세션 종료 실패:',error));}
   document.body.classList.remove('parent-unit-practice');
   parentChildViewActive=false;
   parentChildViewName='';
@@ -11678,6 +11891,64 @@ function toggleSubjectSection(header){
   const section=header.closest('.subject-section');
   section.classList.toggle('open');
 }
+
+// 학습 홈의 정적/동적 버튼을 한 곳에서 처리한다. innerHTML 재렌더링 후에도
+// 리스너를 다시 붙일 필요가 없고, 한 번의 탭은 정확히 한 동작만 실행한다.
+function runLearningHomeAction_(element){
+  const uiAction=element.dataset.uiAction;
+  if(uiAction==='toggle-subject'){toggleSubjectSection(element);return;}
+  if(uiAction==='toggle-incomplete'){toggleIncompleteSection();return;}
+  if(uiAction==='toggle-fold'){toggleSectionFold(element.dataset.bodyId,element.dataset.arrowId);return;}
+
+  const learningAction=element.dataset.learningAction;
+  if(!learningAction)return;
+  if(element.getAttribute('aria-disabled')==='true'){
+    showToast2('🔒 '+(element.querySelector('.unit-sub')?.textContent||'이전 학습을 먼저 완료해 주세요.'));
+    return;
+  }
+  if(element.dataset.tapPending==='1')return;
+  element.dataset.tapPending='1';
+  element.classList.add('tap-pending');
+  element.setAttribute('aria-busy','true');
+  let result;
+  try{
+    const unitId=element.dataset.unitId||'';
+    if(learningAction==='math-concept')result=openMathConceptLearning(unitId);
+    else if(learningAction==='math-basic-review')result=openMathBasicConceptReviewForActive_();
+    else if(learningAction==='math-concept-review')result=openMathConceptReviewLearning(unitId);
+    else if(learningAction==='math-wrong-practice')result=openMathWrongPractice();
+  }catch(error){
+    console.error('학습 버튼 실행 실패:',learningAction,error);
+    showToast2('⚠️ 학습 화면을 열지 못했어요.');
+  }
+  Promise.resolve(result).catch(error=>{
+    console.error('학습 버튼 비동기 실행 실패:',learningAction,error);
+    showToast2('⚠️ 학습 화면을 열지 못했어요.');
+  }).finally(()=>{
+    element.dataset.tapPending='0';element.classList.remove('tap-pending');element.removeAttribute('aria-busy');
+  });
+}
+function handleLearningHomeDelegatedActivation_(event){
+  const element=event.target.closest('[data-ui-action],[data-learning-action],[data-action="resume-learning"]');
+  if(!element||!element.closest('#learning-home-view'))return;
+  if(element.closest('#incomplete-units-body'))return;
+  event.preventDefault();event.stopPropagation();
+  if(element.dataset.action==='resume-learning'){handleResumeLearningElement(element,event);return;}
+  runLearningHomeAction_(element);
+}
+onAppDomReady_(()=>{
+  const home=document.getElementById('learning-home-view');
+  if(!home||home.dataset.learningClickBound==='1')return;
+  home.dataset.learningClickBound='1';
+  home.addEventListener('click',handleLearningHomeDelegatedActivation_);
+  home.addEventListener('keydown',event=>{
+    if(event.key!=='Enter'&&event.key!==' ')return;
+    const element=event.target.closest('[data-ui-action],[data-learning-action],[data-action="resume-learning"]');
+    if(!element)return;
+    event.preventDefault();event.stopPropagation();
+    if(element.dataset.action==='resume-learning')handleResumeLearningElement(element,event);else runLearningHomeAction_(element);
+  });
+});
 
 
 // ===== 기존 inline script 4 =====
@@ -12911,7 +13182,7 @@ async function apiGetMathConceptProgress(name,unitId){
     const res=await fetch(API_URL+'?action=getMathConceptProgress&name='+encodeURIComponent(name)+'&unitId='+encodeURIComponent(unitId),{cache:'no-store'});
     const payload=await res.json();
     return payload&&typeof payload==='object'?payload:{ok:false,data:null};
-  }catch(error){console.warn('수학 진행 서버 조회 실패:',error);return {ok:false,data:null};}
+  }catch(error){markServerReadFailure_();console.warn('수학 진행 서버 조회 실패:',error);return {ok:false,data:null};}
 }
 async function apiSaveMathConceptProgress(snapshot){
   if(isLearningWriteBlocked()||!apiConfigured())return {ok:false,blocked:true};
@@ -12921,7 +13192,13 @@ async function apiSaveMathConceptProgress(snapshot){
     body.set('unitId',snapshot.unitId);
     body.set('data',JSON.stringify(snapshot));body.set('isAdminMode',isAdminSessionActive()?'true':'false');
     const res=await fetch(API_URL,{method:'POST',body});
-    return await res.json();
+    const result=await res.json();
+    if(result?.ok){
+      rememberConfirmedMathProgress_(snapshot);
+      __invalidateReadCache('getMathConceptProgress:'+snapshot.studentKey+':'+snapshot.unitId+':');
+      writeServerUiCache_('student',snapshot.studentKey,studentServerSnapshot_(snapshot.studentKey));
+    }
+    return result;
   }catch(error){console.warn('수학 진행 서버 저장 실패:',error);return {ok:false,error:'NETWORK_ERROR'};}
 }
 function queueMathServerSave(){
