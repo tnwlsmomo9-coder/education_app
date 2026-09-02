@@ -4763,7 +4763,8 @@ async function submitMathWrongPracticeAnswer(){
   if(blockExpiredHomeworkStep_((window.MATH_CONTENT||window.MATH_CONCEPT_CONTENT)?.units?.[item.unitId]?.scheduledDate||''))return;
   const correct=isMathAnswerCorrect(item,mathWrongPracticeSelected);
   mathWrongPracticeFeedback={correct};
-  if(!correct){renderMathWrongPractice_();return;}
+  renderMathWrongPractice_();
+  if(!correct)return;
   if(mathWrongPracticeReplayMode){
     mathWrongPracticeQueue.shift();mathWrongPracticeSelected=null;mathWrongPracticeFeedback=null;mathWrongPracticePhase='concept';renderMathWrongPractice_();return;
   }
