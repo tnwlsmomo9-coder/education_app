@@ -4678,6 +4678,9 @@ let mathWrongPracticeSelected=null;
 let mathWrongPracticeFeedback=null;
 let mathWrongPracticePhase='concept';
 let mathWrongPracticeReplayMode=false;
+// 관리자/개발자 테스트 모드는 실제 학생 데이터 보호를 위해 저장(해결 처리)이 막혀 있다(isLearningWriteBlocked).
+// 그 상태에서도 화면상으로는 다음 문제로 넘어가 볼 수 있도록, 서버에 반영되지 않는 이 세션 한정 스킵 목록만 둔다.
+let mathWrongPracticeTestSkippedIds_=new Set();
 function getResolvedMathWrongPracticeItems_(name){
   const student=STUDENTS.find(s=>s.name===name),content=window.MATH_CONTENT||window.MATH_CONCEPT_CONTENT,items=[];
   if(!student||!content)return items;
@@ -4716,7 +4719,7 @@ async function openMathWrongPractice(unitId=''){
 function renderMathWrongPractice_(){
   const root=document.getElementById('math-concept-root'),step=document.getElementById('math-step-label');
   if(!root)return;
-  if(!mathWrongPracticeReplayMode)mathWrongPracticeQueue=getMathWrongPracticeItems_(playerName).filter(item=>!mathWrongPracticeAccessUnitId||item.unitId===mathWrongPracticeAccessUnitId);
+  if(!mathWrongPracticeReplayMode)mathWrongPracticeQueue=getMathWrongPracticeItems_(playerName).filter(item=>(!mathWrongPracticeAccessUnitId||item.unitId===mathWrongPracticeAccessUnitId)&&!mathWrongPracticeTestSkippedIds_.has(item.questionId));
   if(step)step.textContent=mathWrongPracticeQueue.length?`${mathWrongPracticePhase==='concept'?'관련 개념 복습':'오답 문제 다시 풀기'} · ${mathWrongPracticeQueue.length}문제 남음`:'오답연습 완료';
   if(!mathWrongPracticeQueue.length){
     const replayAvailable=getResolvedMathWrongPracticeItems_(playerName).length>0;
@@ -4769,6 +4772,7 @@ async function submitMathWrongPracticeAnswer(){
     mathWrongPracticeQueue.shift();mathWrongPracticeSelected=null;mathWrongPracticeFeedback=null;mathWrongPracticePhase='concept';renderMathWrongPractice_();return;
   }
   await resolveMathWrongPracticeItem_(playerName,item.unitId,item.questionId,mathWrongPracticeSelected);
+  if(isLearningWriteBlocked())mathWrongPracticeTestSkippedIds_.add(item.questionId);
   if(getMathWrongPracticeItems_(playerName).filter(i=>i.unitId===item.unitId).length===0){
     addCompletedStudyActivity({source:'math',key:`math_wrongPractice_${item.unitId}_${todayLocalDate()}`,title:`오답연습 · ${item.unitTitle}`,detail:'완료',completedAt:new Date().toISOString()});
   }
