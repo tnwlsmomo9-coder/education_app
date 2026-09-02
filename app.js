@@ -4777,13 +4777,13 @@ async function submitMathWrongPracticeAnswer(){
 }
 
 async function resolveMathWrongPracticeItem_(name,unitId,questionId,answer){
-  if(isLearningWriteBlocked())return false;
+  if(isLearningWriteBlocked()){console.warn('[오답연습 해결 실패] isLearningWriteBlocked=true (관리자/개발자 테스트 모드 등)');return false;}
   let snapshot=pickNewerMathConceptProgress_(readMathConceptProgressWithMigration_(name,unitId),mathConceptProgressOverviewCache[mathConceptCacheKey_(name,unitId)]);
-  if(!snapshot||snapshot.studentKey!==name||snapshot.unitId!==unitId)return false;
+  if(!snapshot||snapshot.studentKey!==name||snapshot.unitId!==unitId){console.warn('[오답연습 해결 실패] snapshot 불일치',{hasSnapshot:!!snapshot,snapshotStudentKey:snapshot?.studentKey,name,snapshotUnitId:snapshot?.unitId,unitId});return false;}
   snapshot=JSON.parse(JSON.stringify(snapshot));
   snapshot.wrongPractice={...(snapshot.wrongPractice||{}),items:{...(snapshot.wrongPractice?.items||{})}};
   const existing=snapshot.wrongPractice.items[questionId];
-  if(!existing)return false;
+  if(!existing){console.warn('[오답연습 해결 실패] questionId를 스냅샷에서 못 찾음',{questionId,availableIds:Object.keys(snapshot.wrongPractice.items||{})});return false;}
   const resolvedAt=new Date().toISOString();
   snapshot.wrongPractice.items[questionId]={...existing,resolved:true,resolvedAt,practiceAnswer:String(answer)};
   snapshot.syncRevision=(Number(snapshot.syncRevision)||0)+1;snapshot.updatedAt=resolvedAt;snapshot.pendingSync=true;
@@ -4800,12 +4800,14 @@ async function resolveMathWrongPracticeItem_(name,unitId,questionId,answer){
       renderIncompleteUnitsSection();renderMathLearningCards_();
       return true;
     }
-    if(result?.error!=='STALE_REVISION'||!result.data||result.data.unitId!==unitId)break;
+    if(result?.error!=='STALE_REVISION'||!result.data||result.data.unitId!==unitId){console.warn('[오답연습 해결 실패] 서버 저장 응답 실패(재시도 안 함)',{attempt,result});break;}
+    console.warn('[오답연습 해결] STALE_REVISION, 최신 서버 스냅샷으로 재시도',{attempt});
     const server=result.data;
     snapshot={...server,wrongPractice:{...(server.wrongPractice||{}),items:{...(server.wrongPractice?.items||{}),...(snapshot.wrongPractice?.items||{})}},
       syncRevision:Math.max(Number(result.savedRevision)||0,Number(server.syncRevision)||0)+1,updatedAt:new Date().toISOString(),pendingSync:true};
     snapshot.wrongPractice.items[questionId]={...(snapshot.wrongPractice.items[questionId]||existing),resolved:true,resolvedAt,practiceAnswer:String(answer)};
   }
+  console.warn('[오답연습 해결 실패] 재시도 소진 — 서버 미확정, 로컬만 반영됨(다음 진입 시 다시 미해결로 보일 수 있음)');
   mathConceptProgressOverviewCache[mathConceptCacheKey_(name,unitId)]=snapshot;
   renderIncompleteUnitsSection();renderMathLearningCards_();
   return false;
