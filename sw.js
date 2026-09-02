@@ -1,10 +1,10 @@
-const CACHE_NAME = 'samguk-culture-quiz-v69-math-fraction-fix4';
+const CACHE_NAME = 'samguk-culture-quiz-v70-full-update1';
 const ASSETS = [
   './index.html',
-  './app.js?v=20260902-math-fraction-fix-4',
+  './app.js?v=20260902-full-update-1',
   './math-flow-v2.js?v=20260901-flow-11',
   './learning-content.js?v=20260825-content-19',
-  './math-content.js?v=20260901-math-5',
+  './math-content.js?v=20260902-math-14',
   './manifest.json',
   './icon-192.png',
   './icon-512.png'

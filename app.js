@@ -424,7 +424,8 @@ const MATH_LEARNING_ACCESS_TYPES=[
   {key:'basicReview',label:'기본개념 확인'},
   {key:'conceptReview',label:'개념복습학습'},
   {key:'unitQuiz',label:'수학 단원 퀴즈'},
-  {key:'wrongPractice',label:'오답연습'}
+  {key:'wrongPractice',label:'오답연습'},
+  {key:'appliedConcept',label:'응용개념학습'}
 ];
 
 function mathLearningAccessRawKey_(name,unitId,learningType){return `${encodeURIComponent(String(name||''))}:${String(unitId||'')}:${String(learningType||'')}`;}
@@ -3578,6 +3579,10 @@ function getRequiredLearningItemsForModule_(name,moduleKey,progress,incompleteIt
     keys=student&&content?getAssignedMathUnitIds_(student,content).filter(unitId=>Array.isArray(content.units?.[unitId]?.basicConceptReview)&&content.units[unitId].basicConceptReview.length&&isMathBasicReviewScheduleOpen_(unitId,trustedMathProgressNow_(),content)):[];
   }else if(moduleKey==='mathConceptReviewLearning'){
     keys=student&&content?getAssignedMathUnitIds_(student,content).filter(unitId=>content.units?.[unitId]?.conceptReviewLearning):[];
+  }else if(moduleKey==='mathConceptExtension'){
+    keys=student&&content?getAssignedMathUnitIds_(student,content).filter(unitId=>mathServerConfirmedProgressCache[mathConceptCacheKey_(name,unitId)]?.completed===true):[];
+  }else if(moduleKey==='mathAppliedConcept'){
+    keys=student&&content?getAssignedMathUnitIds_(student,content).filter(unitId=>content.units?.[unitId]?.appliedConcepts):[];
   }else if(moduleKey==='mathWrongPractice'){
     // 오답연습은 미해결 오답이 있는 단원만 현재의 필수학습 1개가 된다.
     keys=(progress.units||[]).filter(unit=>unit.remaining>0).map(unit=>unit.unitId);
@@ -3591,6 +3596,8 @@ function getRequiredLearningItemsForModule_(name,moduleKey,progress,incompleteIt
     if(moduleKey==='mathConcept')completed=server?.completed===true;
     if(moduleKey==='mathBasicConceptReview')completed=server?.basicConceptReview?.completed===true;
     if(moduleKey==='mathConceptReviewLearning')completed=server?.conceptReviewLearning?.completed===true;
+    if(moduleKey==='mathConceptExtension')completed=getMathUnitNewItemsCount_(name,key)===0;
+    if(moduleKey==='mathAppliedConcept')completed=server?.appliedConcepts?.completed===true;
     if(moduleKey==='mathWrongPractice')completed=false;
     return requiredLearningItem_(moduleKey,key,completed,item);
   });
@@ -3650,6 +3657,18 @@ const LEARNING_MODULES={
     calculateProgress:calculateMathBasicConceptReviewProgress,
     getIncompleteItems:getMathBasicConceptReviewIncompleteItems,
     getResumeTarget:getMathBasicConceptReviewResumeTarget
+  },
+  mathConceptExtension:{
+    key:'mathConceptExtension', title:'수학 새 학습', includeInOverall:true,
+    calculateProgress:calculateMathConceptExtensionProgress,
+    getIncompleteItems:getMathConceptExtensionIncompleteItems,
+    getResumeTarget:getMathConceptExtensionResumeTarget
+  },
+  mathAppliedConcept:{
+    key:'mathAppliedConcept', title:'수학 응용개념학습', includeInOverall:true,
+    calculateProgress:calculateMathAppliedConceptProgress,
+    getIncompleteItems:getMathAppliedConceptIncompleteItems,
+    getResumeTarget:getMathAppliedConceptResumeTarget
   },
   mathConceptReviewLearning:{
     key:'mathConceptReviewLearning', title:'수학 개념복습학습', includeInOverall:true,
@@ -4153,6 +4172,8 @@ function resolveLearningResumeTarget(el){
   if(type==='kingOrder') return {type:'kingOrder',eraId:el.dataset.eraId||''};
   if(type==='historySummary') return {type:'historySummary',summaryId:el.dataset.summaryId||HISTORY_SUMMARY1_ID,step:el.dataset.step||'reading'};
   if(type==='mathConcept') return {type:'mathConcept',unitId:el.dataset.unitId||''};
+  if(type==='mathConceptExtension') return {type:'mathConceptExtension',unitId:el.dataset.unitId||''};
+  if(type==='mathAppliedConcept') return {type:'mathAppliedConcept',unitId:el.dataset.unitId||''};
   if(type==='mathConceptReviewLearning') return {type:'mathConceptReviewLearning',unitId:el.dataset.unitId||''};
   if(type==='mathBasicConceptReview') return {type:'mathBasicConceptReview',unitId:el.dataset.unitId||''};
   if(type==='mathWrongPractice') return {type:'mathWrongPractice'};
@@ -4236,6 +4257,10 @@ function openLearningResumeTarget(target){
     if(target.eraId)openKingOrderEra(target.eraId);
   }else if(target.type==='mathConcept'){
     openMathConceptLearning(target.unitId||'');
+  }else if(target.type==='mathConceptExtension'){
+    openMathConceptLearningExtension(target.unitId||'');
+  }else if(target.type==='mathAppliedConcept'){
+    openMathAppliedConceptLearning(target.unitId||'');
   }else if(target.type==='mathConceptReviewLearning'){
     openMathConceptReviewLearning(target.unitId||'');
   }else if(target.type==='mathBasicConceptReview'){
@@ -4367,6 +4392,17 @@ function pickNewerMathConceptProgress_(local,cached){
 function getServerMathConceptProgress_(name,unitId){
   const progress=mathServerConfirmedProgressCache[mathConceptCacheKey_(name,unitId)];
   return progress&&progress.studentKey===name&&progress.unitId===unitId?progress:null;
+}
+
+// 완료된 단원에 콘텐츠가 추가된 뒤 아직 풀지 않은 문항 개수(문제 id 기준, math-flow-v2.js의 newItemIds()와 동일한 판별
+// 방식). 서버 확정 기록(mathServerConfirmedProgressCache) 기준이라 새로고침/다른 기기에서도 같은 값이 나온다.
+function getMathUnitNewItemsCount_(name,unitId){
+  const content=window.MATH_CONTENT||window.MATH_CONCEPT_CONTENT,unit=content?.units?.[unitId];
+  const raw=getServerMathConceptProgress_(name,unitId);
+  if(!unit||!raw||raw.completed!==true)return 0;
+  return (unit.prerequisites||[]).filter(p=>!(p.id in (raw.prerequisite?.results||{}))).length
+    +(unit.coreConcepts||[]).filter(c=>!(c.id in (raw.core?.checks||{}))).length
+    +(unit.finalQuestions||[]).filter(q=>!(q.id in (raw.finalAssessment?.latestAnswers||{}))).length;
 }
 
 function trustedMathProgressNow_(){
@@ -4503,6 +4539,26 @@ function getMathBasicConceptReviewIncompleteItems(name){
 }
 function getMathBasicConceptReviewResumeTarget(name){return getMathBasicConceptReviewIncompleteItems(name)[0]?.resumeTarget||null;}
 
+// 완료된 단원에 새로 추가된 문항("새 학습 이어하기")만 별도로 추적하는 형제 모듈.
+// mathConcept 모듈 자체의 완료 여부/완료시각/진행률은 전혀 건드리지 않고, 새 문항 유무만 독립적으로 판정한다.
+function calculateMathConceptExtensionProgress(name){
+  const student=STUDENTS.find(item=>item.name===name),content=window.MATH_CONTENT||window.MATH_CONCEPT_CONTENT;
+  const units=student&&content?getAssignedMathUnitIds_(student,content).filter(unitId=>getServerMathConceptProgress_(name,unitId)?.completed===true):[];
+  const total=units.length,completedCount=units.filter(unitId=>getMathUnitNewItemsCount_(name,unitId)===0).length,incompleteCount=total-completedCount;
+  return {percent:total?Math.round(completedCount/total*100):100,completed:incompleteCount===0,status:incompleteCount?`미완료 ${incompleteCount}개`:'완료',incompleteCount,
+    resumeTarget:getMathConceptExtensionIncompleteItems(name)[0]?.resumeTarget||null,completedAmount:completedCount,totalAmount:total,includeInOverall:total>0};
+}
+function getMathConceptExtensionIncompleteItems(name){
+  const student=STUDENTS.find(item=>item.name===name),content=window.MATH_CONTENT||window.MATH_CONCEPT_CONTENT;if(!student||!content)return [];
+  return getAssignedMathUnitIds_(student,content).map((unitId,index)=>{
+    if(getServerMathConceptProgress_(name,unitId)?.completed!==true)return null;
+    const newCount=getMathUnitNewItemsCount_(name,unitId);if(newCount<=0)return null;
+    const unit=content.units?.[unitId],lock=getMathSequentialLock_(name,unitId,content);
+    return {moduleKey:'mathConceptExtension',itemKey:unitId,title:`수학개념학습 · ${unit?.title||unitId}`,subtitle:'수학',percent:0,status:`새 학습 ${newCount}문제`,locked:lock.locked,lockMessage:lock.locked?'이전 학습 완료 후 가능':'',resumeTarget:{type:'mathConceptExtension',unitId,unitKey:unitId},sortOrder:1003+(index*3)+1};
+  }).filter(Boolean);
+}
+function getMathConceptExtensionResumeTarget(name){return getMathConceptExtensionIncompleteItems(name)[0]?.resumeTarget||null;}
+
 function getMathConceptReviewLearningIncompleteItems(name){
   const student=STUDENTS.find(item=>item.name===name),content=window.MATH_CONTENT||window.MATH_CONCEPT_CONTENT;if(!student||!content)return [];
   return getAssignedMathUnitIds_(student,content).map((unitId,index)=>{
@@ -4515,6 +4571,20 @@ function getMathConceptReviewLearningIncompleteItems(name){
 }
 function calculateMathConceptReviewLearningProgress(name){const student=STUDENTS.find(item=>item.name===name),content=window.MATH_CONTENT||window.MATH_CONCEPT_CONTENT,units=student&&content?getAssignedMathUnitIds_(student,content).filter(unitId=>content.units?.[unitId]?.conceptReviewLearning):[],total=units.length,completedCount=units.filter(unitId=>mathServerConfirmedProgressCache[mathConceptCacheKey_(name,unitId)]?.conceptReviewLearning?.completed===true).length,incompleteCount=total-completedCount,items=getMathConceptReviewLearningIncompleteItems(name);return {percent:total?Math.round(completedCount/total*100):100,completed:incompleteCount===0,status:incompleteCount?`미완료 ${incompleteCount}개`:'완료',incompleteCount,resumeTarget:items.find(item=>!item.locked)?.resumeTarget||null,completedAmount:completedCount,totalAmount:total,includeInOverall:total>0};}
 function getMathConceptReviewLearningResumeTarget(name){return getMathConceptReviewLearningIncompleteItems(name).find(item=>!item.locked)?.resumeTarget||null;}
+
+// 응용개념학습 — 기본학습(mathConcept)과 완전히 분리된 진행/완료 상태(progress.appliedConcepts)로 추적하는 형제 모듈.
+function getMathAppliedConceptIncompleteItems(name){
+  const student=STUDENTS.find(item=>item.name===name),content=window.MATH_CONTENT||window.MATH_CONCEPT_CONTENT;if(!student||!content)return [];
+  return getAssignedMathUnitIds_(student,content).map((unitId,index)=>{
+    const unit=content.units?.[unitId];if(!unit?.appliedConcepts)return null;
+    const progress=getServerMathConceptProgress_(name,unitId);
+    if(progress?.appliedConcepts?.completed===true)return null;
+    const baseCompleted=progress?.studentKey===name&&progress?.unitId===unitId&&progress.completed===true,priorLocked=getMathSequentialLock_(name,unitId,content).locked,locked=priorLocked||!baseCompleted;
+    return {moduleKey:'mathAppliedConcept',itemKey:unitId,title:`수학 응용개념학습 · ${unit.title}`,subtitle:'수학',percent:0,status:locked?'이전 학습 완료 후 가능':'학습하기',locked,lockMessage:locked?'이전 학습 완료 후 가능':'',resumeTarget:{type:'mathAppliedConcept',unitId,unitKey:unitId},sortOrder:1006+(index*3)};
+  }).filter(Boolean);
+}
+function calculateMathAppliedConceptProgress(name){const student=STUDENTS.find(item=>item.name===name),content=window.MATH_CONTENT||window.MATH_CONCEPT_CONTENT,units=student&&content?getAssignedMathUnitIds_(student,content).filter(unitId=>content.units?.[unitId]?.appliedConcepts):[],total=units.length,completedCount=units.filter(unitId=>mathServerConfirmedProgressCache[mathConceptCacheKey_(name,unitId)]?.appliedConcepts?.completed===true).length,incompleteCount=total-completedCount,items=getMathAppliedConceptIncompleteItems(name);return {percent:total?Math.round(completedCount/total*100):100,completed:incompleteCount===0,status:incompleteCount?`미완료 ${incompleteCount}개`:'완료',incompleteCount,resumeTarget:items.find(item=>!item.locked)?.resumeTarget||null,completedAmount:completedCount,totalAmount:total,includeInOverall:total>0};}
+function getMathAppliedConceptResumeTarget(name){return getMathAppliedConceptIncompleteItems(name).find(item=>!item.locked)?.resumeTarget||null;}
 
 function findMathWrongConceptId_(unit,questionId){
   if(!unit||!questionId)return '';
@@ -4621,6 +4691,7 @@ async function renderMathLearningCards_(){
   const wrongTeacherLocked=!isMathLearningAccessOpen_(playerName,activeUnitId,'wrongPractice');
   const basicTeacherLocked=!isMathLearningAccessOpen_(playerName,activeUnitId,'basicReview');
   const reviewTeacherLocked=!isMathLearningAccessOpen_(playerName,activeUnitId,'conceptReview');
+  const appliedTeacherLocked=!isMathLearningAccessOpen_(playerName,activeUnitId,'appliedConcept');
   const activeCard=document.getElementById('math-unit-card');
   if(activeCard){
     activeCard.classList.toggle('math-completed',!!activeProgress.completed);
@@ -4630,7 +4701,10 @@ async function renderMathLearningCards_(){
   }
   const title=document.getElementById('math-active-unit-title'),sub=document.getElementById('math-active-unit-sub');
   if(title)title.textContent=activeUnit?activeUnit.title:'수학개념학습';
-  if(sub)sub.textContent=activeUnit?((activeUnit.gradeLabel||'')+' · '+(midnightLocked?'오늘 학습 시간이 종료되었습니다.':conceptTeacherLocked?'선생님이 잠근 학습입니다.':activeLock.locked?'이전 학습을 먼저 완료해 주세요':(activeProgress.completed?'완료 · 다시 학습하기':'선수개념부터 차근차근 이해하기'))):'콘텐츠 준비 중';
+  // 완료된 단원에 새 문항이 추가됐는지를 카드 부제에만 반영한다(진행 상태 자체는 여전히 math-flow-v2.js가 관리).
+  const activeNewCount=activeUnit&&activeProgress.completed?getMathUnitNewItemsCount_(playerName,activeUnitId):0;
+  const newItemsLabel=activeNewCount>0?`완료 · 새 학습 ${activeNewCount}문제`:'완료 · 다시 학습하기';
+  if(sub)sub.textContent=activeUnit?((activeUnit.gradeLabel||'')+' · '+(midnightLocked?'오늘 학습 시간이 종료되었습니다.':conceptTeacherLocked?'선생님이 잠근 학습입니다.':activeLock.locked?'이전 학습을 먼저 완료해 주세요':(activeProgress.completed?newItemsLabel:'선수개념부터 차근차근 이해하기'))):'콘텐츠 준비 중';
   if(sub&&activeUnit&&quizTeacherLocked&&!midnightLocked&&!conceptTeacherLocked)sub.textContent+=' · 단원 퀴즈 잠김';
   const wrongSub=document.getElementById('math-wrong-practice-sub');
   const wrongCard=document.getElementById('math-wrong-practice-card');
@@ -4647,6 +4721,12 @@ async function renderMathLearningCards_(){
   if(reviewTitle)reviewTitle.textContent=activeUnit?`개념복습학습 · ${activeUnit.title}`:'개념복습학습';
   if(reviewSub)reviewSub.textContent=!activeUnit?'콘텐츠 준비 중':midnightLocked?'오늘 학습 시간이 종료되었습니다.':reviewTeacherLocked?'선생님이 잠근 학습입니다.':!reviewReady?'수학개념학습 완료 후 시작할 수 있어요':reviewCompleted?'완료 · 다시 복습하기':`${activeUnit.conceptReviewLearning.estimatedMinutes||'20~25'}분 · 문제로 충분히 복습하기`;
   if(reviewCard){reviewCard.classList.toggle('math-completed',reviewCompleted);reviewCard.classList.toggle('teacher-locked-content',!reviewReady||midnightLocked||reviewTeacherLocked);reviewCard.setAttribute('aria-disabled',reviewReady&&!midnightLocked&&!reviewTeacherLocked?'false':'true');reviewCard.dataset.unitId=activeUnitId||'';}
+  // 응용개념학습 — 기본학습과 별개 완료 상태(appliedConcepts)로 노출되는 새 카드(기존 카드/기본학습에는 포함하지 않음)
+  const appliedCard=document.getElementById('math-applied-concept-card'),appliedTitle=document.getElementById('math-applied-concept-title'),appliedSub=document.getElementById('math-applied-concept-sub');
+  const appliedProgress=pickNewerMathConceptProgress_(readMathConceptProgressWithMigration_(playerName,activeUnitId),mathConceptProgressOverviewCache[mathConceptCacheKey_(playerName,activeUnitId)]),appliedCompleted=appliedProgress?.appliedConcepts?.completed===true,appliedReady=!!(activeUnit?.appliedConcepts&&(appliedCompleted||(activeProgress.completed&&!activeLock.locked)));
+  if(appliedTitle)appliedTitle.textContent=activeUnit?`응용개념 · ${activeUnit.title}`:'응용개념';
+  if(appliedSub)appliedSub.textContent=!activeUnit?'콘텐츠 준비 중':midnightLocked?'오늘 학습 시간이 종료되었습니다.':appliedTeacherLocked?'선생님이 잠근 학습입니다.':!activeUnit.appliedConcepts?'콘텐츠 준비 중':!appliedReady?'수학개념학습 완료 후 시작할 수 있어요':appliedCompleted?'완료 · 다시 학습하기':`${activeUnit.appliedConcepts.estimatedMinutes||'25~30'}분 · 문장제로 실전 연습하기`;
+  if(appliedCard){appliedCard.classList.toggle('math-completed',appliedCompleted);appliedCard.classList.toggle('teacher-locked-content',!appliedReady||midnightLocked||appliedTeacherLocked);appliedCard.setAttribute('aria-disabled',appliedReady&&!midnightLocked&&!appliedTeacherLocked?'false':'true');appliedCard.dataset.unitId=activeUnitId||'';}
   const previousIds=getMathUnitIds_(student,content).filter(id=>id!==activeUnitId&&content.units?.[id]);
   const wrap=document.getElementById('math-previous-learning'),list=document.getElementById('math-previous-units');
   if(!wrap||!list)return;
@@ -4883,6 +4963,71 @@ async function saveMathConceptReviewLearning_(wrong=null){
   if(wrong){const q=wrong.question,old=snapshot.wrongPractice.items[q.id]||{};snapshot.wrongPractice.items[q.id]={...old,questionId:q.id,unitId,conceptId:wrong.item.conceptId,question:q.question,choices:Array.isArray(q.choices)?q.choices.slice():[],correctAnswer:String(q.correctAnswer),acceptedAnswers:Array.isArray(q.acceptedAnswers)?q.acceptedAnswers.slice():[],diagram:String(q.diagram||''),studentAnswer:wrong.answer,explanation:String(q.explanation||''),source:'concept-review-learning',wrongAt:wrong.attemptedAt,resolved:false,resolvedAt:null};}
   snapshot.syncRevision=(Number(snapshot.syncRevision)||0)+1;snapshot.updatedAt=new Date().toISOString();snapshot.pendingSync=true;try{localStorage.setItem(mathConceptUnitStorageKey_(name,unitId),JSON.stringify(snapshot));}catch(error){}mathConceptProgressOverviewCache[mathConceptCacheKey_(name,unitId)]=snapshot;
   for(let attempt=0;attempt<2;attempt++){const result=await apiSaveMathConceptProgress(snapshot);if(result?.ok){snapshot.lastServerRevision=Math.max(Number(snapshot.lastServerRevision)||0,Number(result.savedRevision)||snapshot.syncRevision);snapshot.pendingSync=snapshot.syncRevision>snapshot.lastServerRevision;try{localStorage.setItem(mathConceptUnitStorageKey_(name,unitId),JSON.stringify(snapshot));}catch(error){}mathConceptProgressOverviewCache[mathConceptCacheKey_(name,unitId)]=snapshot;renderIncompleteUnitsSection();renderMathLearningCards_();return true;}if(result?.error!=='STALE_REVISION'||!result.data||result.data.unitId!==unitId)break;const server=result.data;snapshot={...server,conceptReviewLearning:JSON.parse(JSON.stringify(mathConceptReviewState)),wrongPractice:{...(server.wrongPractice||{}),items:{...(server.wrongPractice?.items||{}),...(snapshot.wrongPractice?.items||{})}},syncRevision:Math.max(Number(result.savedRevision)||0,Number(server.syncRevision)||0)+1,updatedAt:new Date().toISOString(),pendingSync:true};}
+  mathConceptProgressOverviewCache[mathConceptCacheKey_(name,unitId)]=snapshot;renderIncompleteUnitsSection();renderMathLearningCards_();return false;
+}
+
+// ── 응용개념 학습 ── 기존 기본학습(math-flow-v2.js, 선수개념/핵심개념/최종퀴즈)과 완전히 분리된 별도 학습.
+// conceptReviewLearning과 같은 구조(app.js 자체 상태+렌더/제출, progress에 별도 키로 저장)를 그대로 따르되,
+// coreConcepts를 재사용하는 "핵심개념 짧은 복습" 단계 대신 각 문항 자체의 lesson을 문제와 함께 보여준다.
+let mathAppliedConceptUnit=null,mathAppliedConceptItems=[],mathAppliedConceptState=null,mathAppliedConceptAnswer='';
+function defaultMathAppliedConceptState_(){return {startedAt:new Date().toISOString(),completed:false,completedAt:null,firstCompletedAt:null,relearning:false,phase:'questions',questionIndex:0,results:{},history:[]};}
+function mathAppliedConceptQuestionHtml_(question){
+  const choices=Array.isArray(question.choices)?question.choices.map((choice,index)=>`<button type="button" class="math-choice${mathAppliedConceptAnswer===choice?' selected':''}" onclick="selectMathAppliedConceptAnswer(${index})">${index+1}. ${mathFractionizeText_(choice)}</button>`).join(''):'';
+  const input=choices?'':(mathFractionInputHtml_(question,mathAppliedConceptAnswer,'mathAppliedConceptAnswer')||`<input class="math-answer" inputmode="text" autocomplete="off" placeholder="정답을 직접 입력하세요" value="${mathEscape(mathAppliedConceptAnswer)}" oninput="mathAppliedConceptAnswer=this.value">`);
+  return `<h2>${mathFractionizeText_(question.question)}</h2>${question.diagram?`<div class="math-diagram">${question.diagram}</div>`:''}<div class="math-options">${choices||input}</div><div class="math-actions"><button type="button" class="math-primary" onclick="submitMathAppliedConceptAnswer()">답 확인하기</button></div>`;
+}
+async function openMathAppliedConceptLearning(unitId=''){
+  if(!playerName)return;
+  if(blockStudentLearningEntry_())return;
+  const __card=document.getElementById('math-applied-concept-card');
+  if(__card){ if(__card.classList.contains('tap-pending'))return; __card.classList.add('tap-pending'); }
+  try{
+    const content=await loadMathConceptContent(),student=STUDENTS.find(item=>item.name===playerName);
+    // 진행 상태는 로그인 시 이미 캐시돼 있으므로 재조회를 기다리지 않고 화면부터 연다 — 최신값은 백그라운드로만 확인.
+    loadMathConceptProgressForName_(playerName).catch(error=>console.warn('응용개념학습 진행 상태 백그라운드 갱신 실패:',error));
+    unitId=unitId||getMathActiveUnitId_(student,content);const unit=content.units?.[unitId],progress=pickNewerMathConceptProgress_(readMathConceptProgressWithMigration_(playerName,unitId),mathConceptProgressOverviewCache[mathConceptCacheKey_(playerName,unitId)]);
+    if(blockMathLearningAccess_(playerName,unitId,'appliedConcept'))return;
+    if(isHomeworkPastDue_(playerName,unit?.scheduledDate||'')){showToast2('🔒 오늘 학습 시간이 종료되었습니다.');return;}
+    const appliedScreen=document.getElementById('math-concept-screen');if(appliedScreen)appliedScreen.dataset.homeworkDueDate=unit?.scheduledDate||'';
+    const baseCompleted=progress?.completed===true,priorLocked=unit?getMathSequentialLock_(playerName,unitId,content).locked:true,alreadyStarted=progress?.appliedConcepts?.completed===true;
+    if(!unit?.appliedConcepts||progress?.studentKey!==playerName||progress?.unitId!==unitId||(!alreadyStarted&&(!baseCompleted||priorLocked))){showToast2('이전 수학 필수 학습을 먼저 완료해 주세요.');return;}
+    mathAppliedConceptUnit=unit;mathAppliedConceptItems=unit.appliedConcepts.questions||[];mathAppliedConceptState={...defaultMathAppliedConceptState_(),...(progress.appliedConcepts||{}),results:{...(progress.appliedConcepts?.results||{})}};
+    if(mathAppliedConceptState.completed&&!mathAppliedConceptState.relearning){mathAppliedConceptState.phase='completed';}
+    mathAppliedConceptAnswer='';htShowOnlyScreen('math-concept-screen');renderMathAppliedConceptLearning_();
+  }finally{
+    if(__card)__card.classList.remove('tap-pending');
+  }
+}
+function renderMathAppliedConceptLearning_(){
+  const root=document.getElementById('math-concept-root'),step=document.getElementById('math-step-label');if(!root||!mathAppliedConceptUnit)return;
+  if(mathAppliedConceptState.phase==='completed'){
+    if(step)step.textContent='응용개념학습 완료';root.innerHTML=`<section class="math-card"><div class="math-kicker">${mathEscape(mathAppliedConceptUnit.title)} · 응용개념학습</div><h2>응용개념 학습을 완료했어요!</h2><p>완료 기록은 유지돼요. 필요하면 처음부터 다시 학습할 수 있어요.</p><div class="math-actions"><button type="button" class="math-primary" onclick="restartMathAppliedConceptLearning()">다시 학습하기</button><button type="button" class="math-secondary" onclick="closeMathConceptLearning()">학습 홈으로</button></div></section>`;renderMathLearningCards_();return;
+  }
+  const item=mathAppliedConceptItems[mathAppliedConceptState.questionIndex],result=mathAppliedConceptState.results[item?.question?.id]||{};
+  if(mathAppliedConceptState.phase==='review'){
+    const lesson=item.lesson||{};if(step)step.textContent=`상황·식 다시 보기 · ${mathAppliedConceptState.questionIndex+1} / ${mathAppliedConceptItems.length}`;
+    root.innerHTML=`<section class="math-card"><div class="math-kicker">틀린 부분 다시 보기</div><h2>${mathEscape(item.title)}</h2>${lesson.summary?`<p>${mathFractionizeText_(lesson.summary)}</p>`:''}${lesson.keyPoint?`<p><strong>${mathFractionizeText_(lesson.keyPoint)}</strong></p>`:''}${lesson.example?`<div class="math-equation">${mathFractionizeText_(lesson.example)}</div>`:''}<div class="math-actions"><button type="button" class="math-primary" onclick="startMathAppliedConceptRetry()">조건이 다른 문제로 다시 확인하기 →</button></div></section>`;return;
+  }
+  const question=result.needsReview?item.retryQuestion:item.question,lesson=item.lesson||{};if(step)step.textContent=`${item.stage} · ${mathAppliedConceptState.questionIndex+1} / ${mathAppliedConceptItems.length}`;
+  root.innerHTML=`<section class="math-card"><div class="math-kicker">${mathEscape(item.stage)} · ${mathEscape(item.title)}</div>${lesson.summary?`<p>${mathFractionizeText_(lesson.summary)}</p>`:''}${lesson.keyPoint?`<p><strong>${mathFractionizeText_(lesson.keyPoint)}</strong></p>`:''}${mathAppliedConceptQuestionHtml_(question)}</section>`;
+}
+function selectMathAppliedConceptAnswer(index){const item=mathAppliedConceptItems[mathAppliedConceptState.questionIndex],result=mathAppliedConceptState.results[item.question.id]||{},question=result.needsReview?item.retryQuestion:item.question;mathAppliedConceptAnswer=question.choices[index];renderMathAppliedConceptLearning_();}
+function startMathAppliedConceptRetry(){mathAppliedConceptState.phase='questions';mathAppliedConceptAnswer='';renderMathAppliedConceptLearning_();}
+async function submitMathAppliedConceptAnswer(){
+  if(blockExpiredHomeworkStep_(mathAppliedConceptUnit?.scheduledDate||''))return;
+  const item=mathAppliedConceptItems[mathAppliedConceptState.questionIndex];if(!item||String(mathAppliedConceptAnswer).trim()==='')return;const previous=mathAppliedConceptState.results[item.question.id]||{},question=previous.needsReview?item.retryQuestion:item.question,correct=isMathAnswerCorrect(question,mathAppliedConceptAnswer),attemptedAt=new Date().toISOString();
+  mathAppliedConceptState.results[item.question.id]={...previous,passed:correct,needsReview:!correct,attempts:[...(previous.attempts||[]),{questionId:question.id,answer:String(mathAppliedConceptAnswer),correct,attemptedAt}]};
+  if(!correct){mathAppliedConceptState.phase='review';}else if(mathAppliedConceptState.questionIndex<mathAppliedConceptItems.length-1){mathAppliedConceptState.questionIndex++;mathAppliedConceptState.phase='questions';}else{const firstCompletion=!mathAppliedConceptState.completed;mathAppliedConceptState.completed=true;mathAppliedConceptState.completedAt=mathAppliedConceptState.completedAt||attemptedAt;mathAppliedConceptState.firstCompletedAt=mathAppliedConceptState.firstCompletedAt||mathAppliedConceptState.completedAt;if(mathAppliedConceptState.relearning){mathAppliedConceptState.history=[...(mathAppliedConceptState.history||[]),{completedAt:attemptedAt,results:mathAppliedConceptState.results}];mathAppliedConceptState.relearning=false;}else if(firstCompletion){mathAppliedConceptState.firstCompletedAt=attemptedAt;}mathAppliedConceptState.phase='completed';if(firstCompletion)addCompletedStudyActivity({source:'math',key:`math_appliedConcept_${mathAppliedConceptUnit.id}`,title:`응용개념학습 · ${mathAppliedConceptUnit.title}`,detail:'완료',completedAt:attemptedAt});}
+  const wrong=correct?null:{question,item,answer:String(mathAppliedConceptAnswer),attemptedAt};mathAppliedConceptAnswer='';await saveMathAppliedConceptLearning_(wrong);renderMathAppliedConceptLearning_();
+}
+async function restartMathAppliedConceptLearning(){const completedAt=mathAppliedConceptState.completedAt,firstCompletedAt=mathAppliedConceptState.firstCompletedAt||completedAt,history=[...(mathAppliedConceptState.history||[])];mathAppliedConceptState={...defaultMathAppliedConceptState_(),completed:true,completedAt,firstCompletedAt,relearning:true,history};mathAppliedConceptAnswer='';await saveMathAppliedConceptLearning_();renderMathAppliedConceptLearning_();}
+async function saveMathAppliedConceptLearning_(wrong=null){
+  if(isLearningWriteBlocked())return false;
+  const name=playerName,unitId=mathAppliedConceptUnit.id;let snapshot=pickNewerMathConceptProgress_(readMathConceptProgressWithMigration_(name,unitId),mathConceptProgressOverviewCache[mathConceptCacheKey_(name,unitId)]);if(!snapshot||snapshot.studentKey!==name||snapshot.unitId!==unitId)return false;
+  snapshot=JSON.parse(JSON.stringify(snapshot));snapshot.appliedConcepts=JSON.parse(JSON.stringify(mathAppliedConceptState));snapshot.wrongPractice={...(snapshot.wrongPractice||{}),items:{...(snapshot.wrongPractice?.items||{})}};
+  if(wrong){const q=wrong.question,old=snapshot.wrongPractice.items[q.id]||{};snapshot.wrongPractice.items[q.id]={...old,questionId:q.id,unitId,conceptId:wrong.item.conceptId,question:q.question,choices:Array.isArray(q.choices)?q.choices.slice():[],correctAnswer:String(q.correctAnswer),acceptedAnswers:Array.isArray(q.acceptedAnswers)?q.acceptedAnswers.slice():[],diagram:String(q.diagram||''),studentAnswer:wrong.answer,explanation:String(q.explanation||''),source:'applied-concept-learning',wrongAt:wrong.attemptedAt,resolved:false,resolvedAt:null};}
+  snapshot.syncRevision=(Number(snapshot.syncRevision)||0)+1;snapshot.updatedAt=new Date().toISOString();snapshot.pendingSync=true;try{localStorage.setItem(mathConceptUnitStorageKey_(name,unitId),JSON.stringify(snapshot));}catch(error){}mathConceptProgressOverviewCache[mathConceptCacheKey_(name,unitId)]=snapshot;
+  for(let attempt=0;attempt<2;attempt++){const result=await apiSaveMathConceptProgress(snapshot);if(result?.ok){snapshot.lastServerRevision=Math.max(Number(snapshot.lastServerRevision)||0,Number(result.savedRevision)||snapshot.syncRevision);snapshot.pendingSync=snapshot.syncRevision>snapshot.lastServerRevision;try{localStorage.setItem(mathConceptUnitStorageKey_(name,unitId),JSON.stringify(snapshot));}catch(error){}mathConceptProgressOverviewCache[mathConceptCacheKey_(name,unitId)]=snapshot;renderIncompleteUnitsSection();renderMathLearningCards_();return true;}if(result?.error!=='STALE_REVISION'||!result.data||result.data.unitId!==unitId)break;const server=result.data;snapshot={...server,appliedConcepts:JSON.parse(JSON.stringify(mathAppliedConceptState)),wrongPractice:{...(server.wrongPractice||{}),items:{...(server.wrongPractice?.items||{}),...(snapshot.wrongPractice?.items||{})}},syncRevision:Math.max(Number(result.savedRevision)||0,Number(server.syncRevision)||0)+1,updatedAt:new Date().toISOString(),pendingSync:true};}
   mathConceptProgressOverviewCache[mathConceptCacheKey_(name,unitId)]=snapshot;renderIncompleteUnitsSection();renderMathLearningCards_();return false;
 }
 
@@ -13357,7 +13502,7 @@ function loadMathConceptContent(){
   if(mathContentLoadPromise)return mathContentLoadPromise;
   mathContentLoadPromise=new Promise((resolve,reject)=>{
     const script=document.createElement('script');
-    script.src='math-content.js?v=20260901-math-13';
+    script.src='math-content.js?v=20260902-math-14';
     script.onload=()=>{const content=window.MATH_CONTENT||window.MATH_CONCEPT_CONTENT;content?resolve(content):reject(new Error('수학 콘텐츠 형식 오류'));};
     script.onerror=()=>reject(new Error('수학 콘텐츠 네트워크 오류'));
     document.head.appendChild(script);
@@ -13582,6 +13727,13 @@ async function openMathConceptLearning(unitId){
   }
 }
 function closeMathConceptLearning(){const r=window.MathFlowV2?.close();updateProgressColors();return r;}
+// 홈 "미완료 학습" 목록의 "새 학습 이어하기" 카드 전용 진입점 — 완료 화면(다시 학습하기/새 학습 이어하기 선택)을
+// 거치지 않고 곧바로 확장 학습으로 들어간다. startExtensionLearning()은 완료 상태가 아니거나 새 항목이 없으면
+// 조용히 아무 것도 하지 않도록 이미 구현돼 있어(math-flow-v2.js), 항상 안전하게 호출할 수 있다.
+async function openMathConceptLearningExtension(unitId){
+  await openMathConceptLearning(unitId);
+  if(typeof window.MathFlowV2?.startExtensionLearning==='function')window.MathFlowV2.startExtensionLearning();
+}
 function renderMathPhase(){
   if(!mathProgress||!mathActiveUnit)return;
   if(mathEntryIntro){renderMathIntro();window.scrollTo({top:0,behavior:'auto'});return;}

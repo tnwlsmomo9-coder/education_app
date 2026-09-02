@@ -37,7 +37,9 @@
       wrongPractice:{items:{}},
       basicConceptReview:{completed:false,completedAt:null,results:{}},
       conceptReviewLearning:{},
-      completed:false,completedAt:null,firstCompletion:null,relearning:false,relearningHistory:[],resume:{phase:'prerequisite-check',conceptId:null,questionId:unit.prerequisites[0].question.id},
+      completed:false,completedAt:null,firstCompletion:null,relearning:false,relearningHistory:[],
+      extensionMode:false,extensionCompletedAt:null,
+      resume:{phase:'prerequisite-check',conceptId:null,questionId:unit.prerequisites[0].question.id},
       updatedAt:'',syncRevision:Number(revision)||0,lastServerRevision:Number(revision)||0,pendingSync:false};
   }
 
@@ -103,6 +105,67 @@
     mathState.resume={phase,conceptId,questionId,reviewQueueIds:mathState.reviewQueue.slice()};
   }
 
+  // ── 완료 후 새 문제만 이어하기 ──────────────────────────────────────────
+  // "새 항목" = 현재 unit의 문제 id 중, 이미 저장된 완료 기록(prerequisite.results/core.checks/
+  // finalAssessment.latestAnswers, 전부 문제·개념 id를 key로 쓰는 기존 구조)에 없는 것. id 기준이라
+  // 배열 순서가 바뀌어도 오탐하지 않는다. 기존 필드는 읽기만 하고 절대 수정하지 않는다.
+  function newItemIds(){
+    return {
+      prerequisites:unit.prerequisites.filter(p=>!(p.id in mathState.prerequisite.results)).map(p=>p.id),
+      core:unit.coreConcepts.filter(c=>!(c.id in mathState.core.checks)).map(c=>c.id),
+      final:unit.finalQuestions.filter(q=>!(q.id in mathState.finalAssessment.latestAnswers)).map(q=>q.id)
+    };
+  }
+  function totalNewItemsCount(ids){ids=ids||newItemIds();return ids.prerequisites.length+ids.core.length+ids.final.length;}
+  // arr에서 fromIndex(포함)부터 hasResult가 false인 첫 항목의 인덱스를 찾는다. 없으면 -1.
+  function skipToNextNew_(arr,fromIndex,hasResult){for(let i=Math.max(0,fromIndex);i<arr.length;i++){if(!hasResult(arr[i]))return i;}return -1;}
+  function finishExtension_(){mathState.extensionMode=false;mathState.extensionCompletedAt=new Date().toISOString();mathState.phase='result';mathState.index=0;mathState.selectedAnswer=null;}
+  // 확장 학습 진입점: 선수개념→핵심개념→최종퀴즈 순서로 처음 나오는 "새 항목"을 찾아 그 위치로 이동한다.
+  // 기존 completed/completedAt/prerequisite.results/core.checks/finalAssessment.latestAnswers는 전혀 건드리지 않는다.
+  function startExtensionLearning(){
+    if(!mathState?.completed)return;
+    const ids=newItemIds();
+    mathState.selectedAnswer=null;mathState.extensionMode=true;
+    if(ids.prerequisites.length){mathState.phase='prerequisite';mathState.index=unit.prerequisites.findIndex(p=>p.id===ids.prerequisites[0]);}
+    else if(ids.core.length){mathState.phase='core';mathState.index=unit.coreConcepts.findIndex(c=>c.id===ids.core[0]);}
+    else if(ids.final.length){mathState.phase='final';mathState.index=unit.finalQuestions.findIndex(q=>q.id===ids.final[0]);}
+    else{mathState.extensionMode=false;return;} // 안전장치: 새 항목이 없으면 아무 것도 하지 않음
+    persist();renderMathScreen();
+  }
+  // submit() 끝에서 호출됨. 방금 일반 로직으로 이동한 phase/index가 이미 결과가 있는(옛) 항목을 가리키면
+  // 새 항목을 찾을 때까지 건너뛰고, 그 단계에 새 항목이 더 없으면 다음 단계로 넘어간다. prerequisite-result/
+  // review 화면은 그대로 두어(복습 등 기존 흐름 보존) 사용자가 직접 "start-core"로 넘어가게 한다.
+  function advanceExtensionState_(){
+    if(!mathState.extensionMode)return;
+    for(let guard=0;guard<200;guard++){
+      if(mathState.phase==='prerequisite'){
+        const items=unit.prerequisites,has=id=>id in mathState.prerequisite.results;
+        if(mathState.index<items.length&&!has(items[mathState.index].id))return;
+        const next=skipToNextNew_(items,mathState.index,it=>has(it.id));
+        if(next>=0){mathState.index=next;return;}
+        return; // 새 선수개념 소진 → 일반 로직이 이미 prerequisite-result로 보냈을 것, 그대로 둠
+      }
+      if(mathState.phase==='core'||mathState.phase==='core-check'){
+        const items=unit.coreConcepts,has=id=>id in mathState.core.checks;
+        if(mathState.index<items.length&&!has(items[mathState.index].id))return;
+        const next=skipToNextNew_(items,mathState.index,it=>has(it.id));
+        if(next>=0){mathState.index=next;return;}
+        const finalNext=skipToNextNew_(unit.finalQuestions,0,q=>q.id in mathState.finalAssessment.latestAnswers);
+        if(finalNext>=0){mathState.phase='final';mathState.index=finalNext;}
+        else finishExtension_();
+        return;
+      }
+      if(mathState.phase==='final'){
+        const items=unit.finalQuestions,has=id=>id in mathState.finalAssessment.latestAnswers;
+        if(mathState.index<items.length&&!has(items[mathState.index].id))return;
+        const next=skipToNextNew_(items,mathState.index,it=>has(it.id));
+        if(next>=0){mathState.index=next;return;}
+        finishExtension_();return;
+      }
+      return; // prerequisite-result/review/required-*/result 등은 그대로 둠
+    }
+  }
+
   function attempt(question,source){return {questionId:question.id,conceptId:question.conceptId,selectedAnswer:String(mathState.selectedAnswer),correct:correct(question,mathState.selectedAnswer),attemptedAt:new Date().toISOString(),source};}
   function recordWrongAnswer(question,answer){
     if(answer.correct)return;
@@ -135,7 +198,15 @@
     else if(phase==='core'){const c=unit.coreConcepts[mathState.index],lesson=c.lesson;setStep(`④ 핵심개념 ${mathState.index+1} / ${unit.coreConcepts.length}`);root.innerHTML=`<section class="math-card"><div class="math-kicker">핵심개념</div><h2>${esc(c.title)}</h2><p>${esc(lesson.summary)}</p><p><strong>${esc(lesson.keyPoint)}</strong></p><div class="math-equation">${esc(lesson.example)}</div>${lesson.diagram?`<div class="math-diagram">${lesson.diagram}</div>`:''}<div class="math-actions"><button type="button" class="math-primary" data-math-action="open-core-check">확인문제 풀기 →</button></div></section>`;}
     else if(phase==='core-check'){setStep(`⑤ 확인문제 ${mathState.index+1} / ${unit.coreConcepts.length}`);root.innerHTML=questionHtml(currentQuestion(),'개념별 확인문제');}
     else if(phase==='final'){setStep(`⑥ 마지막 확인 ${mathState.index+1} / ${unit.finalQuestions.length}`);root.innerHTML=questionHtml(currentQuestion(),`마지막 확인 ${mathState.index+1}번`);}
-    else if(mathState.completed&&!mathState.relearning){setStep('학습 완료');root.innerHTML=`<section class="math-card"><div class="math-kicker">완료된 수학개념학습</div><h2>${esc(unit.title)}</h2><p>완료 기록은 그대로 유지돼요. 처음부터 다시 학습할 수 있어요.</p><div class="math-actions"><button type="button" class="math-primary" data-math-action="restart">다시 학습하기</button></div></section>`;}
+    else if(mathState.completed&&!mathState.relearning){
+      setStep('학습 완료');
+      const newIds=newItemIds(),newCount=totalNewItemsCount(newIds);
+      const justFinishedExtension=!!mathState.extensionCompletedAt&&newCount===0;
+      const extraP=justFinishedExtension?'<p>새로 추가된 학습도 모두 완료했어요!</p>':newCount>0?`<p>새로 추가된 학습이 ${newCount}문제 있어요.</p>`:'';
+      const extensionBtn=newCount>0?`<button type="button" class="math-primary" data-math-action="start-extension">새 학습 이어하기 (${newCount}문제)</button>`:'';
+      const restartCls=newCount>0?'math-secondary':'math-primary';
+      root.innerHTML=`<section class="math-card"><div class="math-kicker">완료된 수학개념학습</div><h2>${esc(unit.title)}</h2><p>완료 기록은 그대로 유지돼요. 처음부터 다시 학습할 수 있어요.</p>${extraP}<div class="math-actions">${extensionBtn}<button type="button" class="${restartCls}" data-math-action="restart">다시 학습하기</button></div></section>`;
+    }
     else {setStep('⑦ 학습 결과');root.innerHTML=`<section class="math-card"><div class="math-kicker">${mathState.relearning?'재학습':'오늘의 수학 개념'} 결과</div><h2>${mathState.finalAssessment.correctCount} / ${unit.finalQuestions.length} 정답</h2><div class="math-actions"><button type="button" class="math-primary" data-math-action="complete">${mathState.relearning?'재학습 완료하기':'학습 완료하기'}</button></div></section>`;}
     console.info('[MathFlow v2] render',{phase:mathState.phase,index:mathState.index,questionId:currentQuestion()?.id||null,revision:mathState.syncRevision});
   }
@@ -146,7 +217,8 @@
     else if(mathState.phase==='review'){const id=mathState.reviewQueue[mathState.index],r=mathState.prerequisite.results[id];r.reviewCompleted=true;r.reviewAttempts=[...(r.reviewAttempts||[]),a];r.updatedAt=a.attemptedAt;mathState.selectedAnswer=null;if(mathState.index<mathState.reviewQueue.length-1)mathState.index++;else{mathState.phase='prerequisite-result';mathState.index=0;}}
     else if(mathState.phase==='required-check'){const checks=unit.requiredPrerequisiteChecks||[],item=checks[mathState.index],previous=mathState.requiredPrerequisite.results[item.id]||{};mathState.requiredPrerequisite.results[item.id]={passed:a.correct,needsReview:!a.correct,attempts:[...(previous.attempts||[]),a],updatedAt:a.attemptedAt};mathState.selectedAnswer=null;if(!a.correct)mathState.phase='required-review';else if(mathState.index<checks.length-1)mathState.index++;else{mathState.requiredPrerequisite.completed=true;mathState.phase='core';mathState.index=0;}}
     else if(mathState.phase==='core-check'){const c=unit.coreConcepts[mathState.index];mathState.core.checks[c.id]={correct:a.correct,attempts:[...(mathState.core.checks[c.id]?.attempts||[]),a],updatedAt:a.attemptedAt};mathState.selectedAnswer=null;if(mathState.index<unit.coreConcepts.length-1){mathState.phase='core';mathState.index++;}else{if(typeof window.blockMathLearningAccess_==='function'&&window.blockMathLearningAccess_(playerName,unit?.id||'','unitQuiz')){renderMathScreen();return;}mathState.phase='final';mathState.index=0;}}
-    else if(mathState.phase==='final'){mathState.finalAssessment.attempts.push(a);mathState.finalAssessment.latestAnswers[q.id]=a;mathState.finalAssessment.correctCount=Object.values(mathState.finalAssessment.latestAnswers).filter(x=>x.correct).length;mathState.finalAssessment.wrongConceptIds=[...new Set(Object.values(mathState.finalAssessment.latestAnswers).filter(x=>!x.correct).map(x=>x.conceptId))];mathState.selectedAnswer=null;if(mathState.index<unit.finalQuestions.length-1)mathState.index++;else{mathState.phase='result';mathState.index=0;}}
+    else if(mathState.phase==='final'){mathState.finalAssessment.attempts.push(a);mathState.finalAssessment.latestAnswers[q.id]=a;mathState.finalAssessment.correctCount=Object.values(mathState.finalAssessment.latestAnswers).filter(x=>x.correct).length;mathState.finalAssessment.wrongConceptIds=[...new Set(Object.values(mathState.finalAssessment.latestAnswers).filter(x=>!x.correct).map(x=>x.conceptId))];mathState.selectedAnswer=null;if(mathState.index<unit.finalQuestions.length-1)mathState.index++;else if(mathState.extensionMode)finishExtension_();else{mathState.phase='result';mathState.index=0;}}
+    advanceExtensionState_();
     persist();renderMathScreen();
   }
 
@@ -158,11 +230,18 @@
       relearningHistory:clone(original.relearningHistory||[]),wrongPractice:clone(original.wrongPractice),basicConceptReview:clone(original.basicConceptReview||{}),conceptReviewLearning:clone(original.conceptReviewLearning||{}),basicConceptReviewPolicyVersion:original.basicConceptReviewPolicyVersion||null,lastServerRevision:original.lastServerRevision,pendingSync:original.pendingSync};
     persist();renderMathScreen();
   }
-  function handleClick(event){const button=event.target.closest('button[data-math-action]');if(!button||button.disabled)return;const action=button.dataset.mathAction;if(action==='select'){mathState.selectedAnswer=currentQuestion().choices[Number(button.dataset.choiceIndex)];renderMathScreen();}else if(action==='submit'){button.disabled=true;submit();}else if(action==='start-review'){mathState.phase='review';mathState.index=0;mathState.selectedAnswer=null;persist();renderMathScreen();}else if(action==='start-core'){const checks=unit.requiredPrerequisiteChecks||[],firstIncomplete=checks.findIndex(item=>!mathState.requiredPrerequisite.results[item.id]?.passed);if(firstIncomplete>=0){mathState.phase='required-check';mathState.index=firstIncomplete;}else{mathState.requiredPrerequisite.completed=true;mathState.phase='core';mathState.index=0;}mathState.selectedAnswer=null;persist();renderMathScreen();}else if(action==='start-required-retry'){mathState.phase='required-check';mathState.selectedAnswer=null;persist();renderMathScreen();}else if(action==='open-core-check'){const id=unit.coreConcepts[mathState.index].id;if(!mathState.core.visitedConceptIds.includes(id))mathState.core.visitedConceptIds.push(id);mathState.phase='core-check';mathState.selectedAnswer=null;persist();renderMathScreen();}else if(action==='restart'){restartCompletedLearning();}else if(action==='complete'){const completedAt=new Date().toISOString(),firstCompletion=mathState.completed!==true;if(mathState.relearning){mathState.relearningHistory.push(completionSnapshot(mathState,completedAt));mathState.relearning=false;}if(firstCompletion)mathState.basicConceptReviewPolicyVersion='next-day-v1';mathState.completed=true;mathState.completedAt=mathState.completedAt||completedAt;persist();renderMathScreen();}}
+  function handleClick(event){const button=event.target.closest('button[data-math-action]');if(!button||button.disabled)return;const action=button.dataset.mathAction;if(action==='select'){mathState.selectedAnswer=currentQuestion().choices[Number(button.dataset.choiceIndex)];renderMathScreen();}else if(action==='submit'){button.disabled=true;submit();}else if(action==='start-review'){mathState.phase='review';mathState.index=0;mathState.selectedAnswer=null;persist();renderMathScreen();}else if(action==='start-core'){const checks=unit.requiredPrerequisiteChecks||[],firstIncomplete=checks.findIndex(item=>!mathState.requiredPrerequisite.results[item.id]?.passed);if(firstIncomplete>=0){mathState.phase='required-check';mathState.index=firstIncomplete;}else{mathState.requiredPrerequisite.completed=true;
+      if(mathState.extensionMode){
+        // 확장 학습 중이면 핵심개념 0번이 아니라, 그 단계의 첫 "새 항목"으로 바로 이동한다(없으면 최종퀴즈의 새 항목, 그마저 없으면 종료).
+        const coreNext=skipToNextNew_(unit.coreConcepts,0,c=>c.id in mathState.core.checks);
+        if(coreNext>=0){mathState.phase='core';mathState.index=coreNext;}
+        else{const finalNext=skipToNextNew_(unit.finalQuestions,0,q=>q.id in mathState.finalAssessment.latestAnswers);if(finalNext>=0){mathState.phase='final';mathState.index=finalNext;}else finishExtension_();}
+      }else{mathState.phase='core';mathState.index=0;}
+    }mathState.selectedAnswer=null;persist();renderMathScreen();}else if(action==='start-extension'){startExtensionLearning();}else if(action==='start-required-retry'){mathState.phase='required-check';mathState.selectedAnswer=null;persist();renderMathScreen();}else if(action==='open-core-check'){const id=unit.coreConcepts[mathState.index].id;if(!mathState.core.visitedConceptIds.includes(id))mathState.core.visitedConceptIds.push(id);mathState.phase='core-check';mathState.selectedAnswer=null;persist();renderMathScreen();}else if(action==='restart'){restartCompletedLearning();}else if(action==='complete'){const completedAt=new Date().toISOString(),firstCompletion=mathState.completed!==true;if(mathState.relearning){mathState.relearningHistory.push(completionSnapshot(mathState,completedAt));mathState.relearning=false;}if(firstCompletion)mathState.basicConceptReviewPolicyVersion='next-day-v1';mathState.completed=true;mathState.completedAt=mathState.completedAt||completedAt;persist();renderMathScreen();}}
 
   async function loadServer(openMutation,sequence){try{const response=await fetch(API_URL+'?action=getMathConceptProgress&name='+encodeURIComponent(student.name)+'&unitId='+encodeURIComponent(unit.id),{cache:'no-store'}),payload=await response.json();if(sequence!==loadSequence||!payload?.ok)return;const server=payload.data,serverRevision=Number(server?.syncRevision)||0;if(sessionMutation!==openMutation){mathState.lastServerRevision=Math.max(mathState.lastServerRevision,serverRevision);if(mathState.syncRevision<=serverRevision){mathState.syncRevision=serverRevision+1;mathState.pendingSync=true;queueSave();}return;}const local=mathState,serverState=normalizeProgress(server);const serverIsV2=server?.unitId===unit.id&&Number(server?.contentVersion||1)===Number(unit.contentVersion);if(serverIsV2&&(serverState.syncRevision>local.syncRevision||(serverState.syncRevision===local.syncRevision&&String(serverState.updatedAt||'')>String(local.updatedAt||''))))mathState=serverState;else{mathState.lastServerRevision=Math.max(mathState.lastServerRevision,serverRevision);mathState.syncRevision=Math.max(mathState.syncRevision,serverRevision);}if(!isLearningWriteBlocked())localStorage.setItem(storageKey(),JSON.stringify(mathState));renderMathScreen();}catch(error){console.warn('수학 v2 서버 조회 실패:',error);}}
 
   async function open(requestedUnitId){if(typeof window.blockStudentLearningEntry_==='function'&&window.blockStudentLearningEntry_())return;student=STUDENTS.find(item=>item.name===playerName);if(!student)return;const content=await loadMathConceptContent();const gradeConfig=content.grades?.[student.grade];const unitId=requestedUnitId||gradeConfig?.activeUnit||student.mathUnitId;if(typeof window.blockMathLearningAccess_==='function'&&window.blockMathLearningAccess_(playerName,unitId,'concept'))return;unit=content.units[unitId];if(!unit||unit.grade!==student.grade){showToast2('⏳ 이 학년 수학개념학습은 준비 중이에요.');return;}screen=document.getElementById('math-concept-screen');root=document.getElementById('math-concept-root');if(!bound){screen.addEventListener('click',handleClick);bound=true;}mathState=normalizeProgress(readLocalWithMigration());if(mathState.phase==='final'&&typeof window.blockMathLearningAccess_==='function'&&window.blockMathLearningAccess_(playerName,unitId,'unitQuiz'))return;sessionMutation=0;const sequence=++loadSequence;htShowOnlyScreen('math-concept-screen');renderMathScreen();loadServer(sessionMutation,sequence);}
   function close(){loadSequence++;mathState=null;unit=null;student=null;goHome();}
-  window.MathFlowV2={open,close,_test:{initialState:()=>initialState(),normalizeProgress,render:renderMathScreen,getState:()=>clone(mathState),setState:value=>{mathState=normalizeProgress(value);},submit,handleClick,recordWrongAnswer,restartCompletedLearning}};
+  window.MathFlowV2={open,close,startExtensionLearning,_test:{initialState:()=>initialState(),normalizeProgress,render:renderMathScreen,getState:()=>clone(mathState),setState:value=>{mathState=normalizeProgress(value);},submit,handleClick,recordWrongAnswer,restartCompletedLearning,newItemIds,totalNewItemsCount,startExtensionLearning}};
 })();
