@@ -5,7 +5,7 @@
 <!-- app.js/learning-content.js는 아래에서 rAF 이후 동적으로 <script> 삽입되어 실행되지만,
      다운로드 자체는 여기서 미리 시작해두면 두 파일이 순차가 아니라 병렬로 받아져 초기 로딩이 빨라집니다.
      버전 쿼리(?v=...)는 실제 <script src=...> 값과 반드시 동일하게 유지해야 브라우저가 프리로드를 재사용합니다. -->
-<link rel="preload" as="script" href="app.js?v=20260902-numeric-keypad-1">
+<link rel="preload" as="script" href="app.js?v=20260902-math-fraction-fix-1">
 <link rel="preload" as="script" href="learning-content.js?v=20260825-content-19">
 <link rel="preload" as="script" href="math-flow-v2.js?v=20260901-flow-11">
 <script src="math-flow-v2.js?v=20260901-flow-11"></script>
@@ -1817,6 +1817,7 @@ body:has(#math-concept-screen[style*="display: block"]){align-items:flex-start}
 .math-choice.selected{border-color:var(--student-accent,var(--ember));background:var(--student-accent-tint,#f4f0ff)}
 .math-answer{width:100%;min-height:48px;box-sizing:border-box;border:1.5px solid var(--neutral-border);border-radius:var(--radius-md);padding:12px;font:inherit;font-size:16px}
 .math-fraction-wrap{display:flex;flex-direction:column;align-items:center;gap:10px;width:100%;padding:8px 0}.math-fraction-guide{margin:0;color:var(--neutral-text-secondary);font-size:14px;text-align:center}.math-fraction-input{display:grid;grid-template-rows:minmax(52px,auto) 3px minmax(52px,auto);align-items:center;width:min(190px,72vw);gap:8px}.math-fraction-number{width:100%;min-height:52px;box-sizing:border-box;border:1.5px solid var(--neutral-border);border-radius:var(--radius-md);padding:10px;text-align:center;font:inherit;font-size:22px;background:#fff}.math-fraction-number:focus{outline:3px solid rgba(59,130,246,.18);border-color:#3b82f6}.math-fraction-line{height:3px;width:100%;border-radius:999px;background:currentColor}
+.math-frac{display:inline-flex;flex-direction:column;align-items:center;justify-content:center;vertical-align:middle;margin:0 .15em;line-height:1.15;font-size:.86em}.math-frac-num,.math-frac-den{display:block;padding:0 .2em}.math-frac-bar{display:block;width:100%;min-width:.6em;height:2px;margin:.05em 0;background:currentColor;border-radius:999px}
 .math-feedback{border-radius:var(--radius-md);padding:12px;margin-top:12px;font-weight:800;line-height:1.6}
 .math-feedback.ok{background:color-mix(in srgb,var(--neutral-correct) 14%,white);color:#1e7d4d}
 .math-feedback.bad{background:color-mix(in srgb,var(--neutral-wrong) 11%,white);color:#a33b43}
@@ -4538,7 +4539,7 @@ h1,h2,h3,.title-label{
 
 <script>
 (()=>{
-  const APP_SCRIPT_URL='app.js?v=20260902-numeric-keypad-1';
+  const APP_SCRIPT_URL='app.js?v=20260902-math-fraction-fix-1';
   window.__APP_SCRIPT_URL=APP_SCRIPT_URL; // 디버그 로그(app.js __perfMark)가 실제 로드 버전을 하드코딩 없이 참조하도록 노출
   window.__appMainReady=false;
   window.__pendingShellStudent='';

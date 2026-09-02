@@ -4729,18 +4729,18 @@ function renderMathWrongPractice_(){
     const review=getMathWrongConceptReview_(item);
     if(review){
       root.innerHTML=`<section class="math-card"><div class="math-kicker">${mathEscape(item.unitTitle)} · 관련 개념 복습</div><h2>${mathEscape(review.title)}</h2>
-        ${review.summary?`<p>${mathEscape(review.summary)}</p>`:''}${review.keyPoint?`<p><strong>${mathEscape(review.keyPoint)}</strong></p>`:''}
-        ${review.diagram?`<div class="math-diagram">${review.diagram}</div>`:''}${review.example?`<div class="math-equation">${mathEscape(review.example)}</div>`:''}
+        ${review.summary?`<p>${mathFractionizeText_(review.summary)}</p>`:''}${review.keyPoint?`<p><strong>${mathFractionizeText_(review.keyPoint)}</strong></p>`:''}
+        ${review.diagram?`<div class="math-diagram">${review.diagram}</div>`:''}${review.example?`<div class="math-equation">${mathFractionizeText_(review.example)}</div>`:''}
         <div class="math-actions"><button type="button" class="math-primary" onclick="startMathWrongPracticeQuestion()">오답 문제 다시 풀기 →</button></div></section>`;
       return;
     }
     mathWrongPracticePhase='question';
     if(step)step.textContent=`오답 문제 다시 풀기 · ${mathWrongPracticeQueue.length}문제 남음`;
   }
-  const choices=(item.choices||[]).map((choice,index)=>`<button type="button" class="math-choice${mathWrongPracticeSelected===choice?' selected':''}" onclick="selectMathWrongPracticeAnswer(${index})">${index+1}. ${mathEscape(choice)}</button>`).join('');
+  const choices=(item.choices||[]).map((choice,index)=>`<button type="button" class="math-choice${mathWrongPracticeSelected===choice?' selected':''}" onclick="selectMathWrongPracticeAnswer(${index})">${index+1}. ${mathFractionizeText_(choice)}</button>`).join('');
   const directInput=choices?'':(mathFractionInputHtml_(item,mathWrongPracticeSelected||'','mathWrongPracticeSelected','mathWrongPracticeFeedback=null;')||`<input class="math-answer" inputmode="text" autocomplete="off" placeholder="정답을 직접 입력하세요" value="${mathEscape(mathWrongPracticeSelected||'')}" oninput="mathWrongPracticeSelected=this.value;mathWrongPracticeFeedback=null">`);
-  const feedback=mathWrongPracticeFeedback?`<div class="math-feedback ${mathWrongPracticeFeedback.correct?'ok':'bad'}">${mathWrongPracticeFeedback.correct?'✓ 정답이에요!':'△ 다시 풀어보세요.'}${mathWrongPracticeFeedback.correct||!item.explanation?'':`<br>${mathEscape(item.explanation)}`}</div>`:'';
-  root.innerHTML=`<section class="math-card"><div class="math-kicker">${mathEscape(item.unitTitle)} · 오답 다시 풀기</div><h2>${mathEscape(item.question)}</h2>
+  const feedback=mathWrongPracticeFeedback?`<div class="math-feedback ${mathWrongPracticeFeedback.correct?'ok':'bad'}">${mathWrongPracticeFeedback.correct?'✓ 정답이에요!':'△ 다시 풀어보세요.'}${mathWrongPracticeFeedback.correct||!item.explanation?'':`<br>${mathFractionizeText_(item.explanation)}`}</div>`:'';
+  root.innerHTML=`<section class="math-card"><div class="math-kicker">${mathEscape(item.unitTitle)} · 오답 다시 풀기</div><h2>${mathFractionizeText_(item.question)}</h2>
     ${item.diagram?`<div class="math-diagram">${item.diagram}</div>`:''}<div class="math-options">${choices||directInput}</div>${feedback}
     <div class="math-actions"><button type="button" class="math-primary" onclick="submitMathWrongPracticeAnswer()"${choices&&mathWrongPracticeSelected===null?' disabled aria-disabled="true"':''}>답 제출하기</button></div></section>`;
 }
@@ -4768,6 +4768,9 @@ async function submitMathWrongPracticeAnswer(){
     mathWrongPracticeQueue.shift();mathWrongPracticeSelected=null;mathWrongPracticeFeedback=null;mathWrongPracticePhase='concept';renderMathWrongPractice_();return;
   }
   await resolveMathWrongPracticeItem_(playerName,item.unitId,item.questionId,mathWrongPracticeSelected);
+  if(getMathWrongPracticeItems_(playerName).filter(i=>i.unitId===item.unitId).length===0){
+    addCompletedStudyActivity({source:'math',key:`math_wrongPractice_${item.unitId}_${todayLocalDate()}`,title:`오답연습 · ${item.unitTitle}`,detail:'완료',completedAt:new Date().toISOString()});
+  }
   mathWrongPracticeSelected=null;mathWrongPracticeFeedback=null;mathWrongPracticePhase='concept';
   renderMathWrongPractice_();
 }
@@ -4811,9 +4814,9 @@ let mathConceptReviewUnit=null,mathConceptReviewItems=[],mathConceptReviewState=
 function defaultMathConceptReviewState_(){return {startedAt:new Date().toISOString(),completed:false,completedAt:null,firstCompletedAt:null,relearning:false,phase:'concepts',conceptIndex:0,questionIndex:0,results:{}};}
 function getMathConceptReviewConcepts_(){return [...new Set(mathConceptReviewItems.map(item=>item.conceptId))].map(id=>(mathConceptReviewUnit.coreConcepts||[]).find(item=>item.id===id)).filter(Boolean);}
 function mathConceptReviewQuestionHtml_(question){
-  const choices=Array.isArray(question.choices)?question.choices.map((choice,index)=>`<button type="button" class="math-choice${mathConceptReviewAnswer===choice?' selected':''}" onclick="selectMathConceptReviewAnswer(${index})">${index+1}. ${mathEscape(choice)}</button>`).join(''):'';
+  const choices=Array.isArray(question.choices)?question.choices.map((choice,index)=>`<button type="button" class="math-choice${mathConceptReviewAnswer===choice?' selected':''}" onclick="selectMathConceptReviewAnswer(${index})">${index+1}. ${mathFractionizeText_(choice)}</button>`).join(''):'';
   const input=choices?'':(mathFractionInputHtml_(question,mathConceptReviewAnswer,'mathConceptReviewAnswer')||`<input class="math-answer" inputmode="text" autocomplete="off" placeholder="정답을 직접 입력하세요" value="${mathEscape(mathConceptReviewAnswer)}" oninput="mathConceptReviewAnswer=this.value">`);
-  return `<h2>${mathEscape(question.question)}</h2>${question.diagram?`<div class="math-diagram">${question.diagram}</div>`:''}<div class="math-options">${choices||input}</div><div class="math-actions"><button type="button" class="math-primary" onclick="submitMathConceptReviewAnswer()">답 확인하기</button></div>`;
+  return `<h2>${mathFractionizeText_(question.question)}</h2>${question.diagram?`<div class="math-diagram">${question.diagram}</div>`:''}<div class="math-options">${choices||input}</div><div class="math-actions"><button type="button" class="math-primary" onclick="submitMathConceptReviewAnswer()">답 확인하기</button></div>`;
 }
 async function openMathConceptReviewLearning(unitId=''){
   if(!playerName)return;
@@ -4845,12 +4848,12 @@ function renderMathConceptReviewLearning_(){
   }
   if(mathConceptReviewState.phase==='concepts'){
     const concept=concepts[mathConceptReviewState.conceptIndex]||concepts[0],lesson=concept?.lesson||{};if(step)step.textContent=`핵심개념 짧은 복습 ${mathConceptReviewState.conceptIndex+1} / ${concepts.length}`;
-    root.innerHTML=`<section class="math-card"><div class="math-kicker">핵심개념 짧은 복습</div><h2>${mathEscape(concept?.title||'핵심개념')}</h2>${lesson.summary?`<p>${mathEscape(lesson.summary)}</p>`:''}${lesson.keyPoint?`<p><strong>${mathEscape(lesson.keyPoint)}</strong></p>`:''}${lesson.diagram?`<div class="math-diagram">${lesson.diagram}</div>`:''}${lesson.example?`<div class="math-equation">${mathEscape(lesson.example)}</div>`:''}<div class="math-actions"><button type="button" class="math-primary" onclick="nextMathConceptReviewConcept()">${mathConceptReviewState.conceptIndex<concepts.length-1?'다음 핵심개념 →':'문제 복습 시작하기 →'}</button></div></section>`;return;
+    root.innerHTML=`<section class="math-card"><div class="math-kicker">핵심개념 짧은 복습</div><h2>${mathEscape(concept?.title||'핵심개념')}</h2>${lesson.summary?`<p>${mathFractionizeText_(lesson.summary)}</p>`:''}${lesson.keyPoint?`<p><strong>${mathFractionizeText_(lesson.keyPoint)}</strong></p>`:''}${lesson.diagram?`<div class="math-diagram">${lesson.diagram}</div>`:''}${lesson.example?`<div class="math-equation">${mathFractionizeText_(lesson.example)}</div>`:''}<div class="math-actions"><button type="button" class="math-primary" onclick="nextMathConceptReviewConcept()">${mathConceptReviewState.conceptIndex<concepts.length-1?'다음 핵심개념 →':'문제 복습 시작하기 →'}</button></div></section>`;return;
   }
   const item=mathConceptReviewItems[mathConceptReviewState.questionIndex],result=mathConceptReviewState.results[item?.question?.id]||{};
   if(mathConceptReviewState.phase==='review'){
     const concept=(mathConceptReviewUnit.coreConcepts||[]).find(entry=>entry.id===item.conceptId),lesson=concept?.lesson||{};if(step)step.textContent=`오답 개념 복습 · ${mathConceptReviewState.questionIndex+1} / ${mathConceptReviewItems.length}`;
-    root.innerHTML=`<section class="math-card"><div class="math-kicker">틀린 개념 짧은 복습</div><h2>${mathEscape(concept?.title||item.title)}</h2>${lesson.summary?`<p>${mathEscape(lesson.summary)}</p>`:''}${lesson.keyPoint?`<p><strong>${mathEscape(lesson.keyPoint)}</strong></p>`:''}${lesson.diagram?`<div class="math-diagram">${lesson.diagram}</div>`:''}${lesson.example?`<div class="math-equation">${mathEscape(lesson.example)}</div>`:''}<div class="math-actions"><button type="button" class="math-primary" onclick="startMathConceptReviewRetry()">조건이 다른 문제로 다시 확인하기 →</button></div></section>`;return;
+    root.innerHTML=`<section class="math-card"><div class="math-kicker">틀린 개념 짧은 복습</div><h2>${mathEscape(concept?.title||item.title)}</h2>${lesson.summary?`<p>${mathFractionizeText_(lesson.summary)}</p>`:''}${lesson.keyPoint?`<p><strong>${mathFractionizeText_(lesson.keyPoint)}</strong></p>`:''}${lesson.diagram?`<div class="math-diagram">${lesson.diagram}</div>`:''}${lesson.example?`<div class="math-equation">${mathFractionizeText_(lesson.example)}</div>`:''}<div class="math-actions"><button type="button" class="math-primary" onclick="startMathConceptReviewRetry()">조건이 다른 문제로 다시 확인하기 →</button></div></section>`;return;
   }
   const question=result.needsReview?item.retryQuestion:item.question;if(step)step.textContent=`${item.stage} · ${mathConceptReviewState.questionIndex+1} / ${mathConceptReviewItems.length}`;
   root.innerHTML=`<section class="math-card"><div class="math-kicker">${mathEscape(item.stage)} · ${mathEscape(item.title)}</div>${mathConceptReviewQuestionHtml_(question)}</section>`;
@@ -4862,7 +4865,7 @@ async function submitMathConceptReviewAnswer(){
   if(blockExpiredHomeworkStep_(mathConceptReviewUnit?.scheduledDate||''))return;
   const item=mathConceptReviewItems[mathConceptReviewState.questionIndex];if(!item||String(mathConceptReviewAnswer).trim()==='')return;const previous=mathConceptReviewState.results[item.question.id]||{},question=previous.needsReview?item.retryQuestion:item.question,correct=isMathAnswerCorrect(question,mathConceptReviewAnswer),attemptedAt=new Date().toISOString();
   mathConceptReviewState.results[item.question.id]={...previous,passed:correct,needsReview:!correct,attempts:[...(previous.attempts||[]),{questionId:question.id,answer:String(mathConceptReviewAnswer),correct,attemptedAt}]};
-  if(!correct){mathConceptReviewState.phase='review';}else if(mathConceptReviewState.questionIndex<mathConceptReviewItems.length-1){mathConceptReviewState.questionIndex++;mathConceptReviewState.phase='questions';}else{const firstCompletion=!mathConceptReviewState.completed;mathConceptReviewState.completed=true;mathConceptReviewState.completedAt=mathConceptReviewState.completedAt||attemptedAt;mathConceptReviewState.firstCompletedAt=mathConceptReviewState.firstCompletedAt||mathConceptReviewState.completedAt;if(mathConceptReviewState.relearning){mathConceptReviewState.history=[...(mathConceptReviewState.history||[]),{completedAt:attemptedAt,results:mathConceptReviewState.results}];mathConceptReviewState.relearning=false;}else if(firstCompletion){mathConceptReviewState.firstCompletedAt=attemptedAt;}mathConceptReviewState.phase='completed';}
+  if(!correct){mathConceptReviewState.phase='review';}else if(mathConceptReviewState.questionIndex<mathConceptReviewItems.length-1){mathConceptReviewState.questionIndex++;mathConceptReviewState.phase='questions';}else{const firstCompletion=!mathConceptReviewState.completed;mathConceptReviewState.completed=true;mathConceptReviewState.completedAt=mathConceptReviewState.completedAt||attemptedAt;mathConceptReviewState.firstCompletedAt=mathConceptReviewState.firstCompletedAt||mathConceptReviewState.completedAt;if(mathConceptReviewState.relearning){mathConceptReviewState.history=[...(mathConceptReviewState.history||[]),{completedAt:attemptedAt,results:mathConceptReviewState.results}];mathConceptReviewState.relearning=false;}else if(firstCompletion){mathConceptReviewState.firstCompletedAt=attemptedAt;}mathConceptReviewState.phase='completed';if(firstCompletion)addCompletedStudyActivity({source:'math',key:`math_conceptReview_${mathConceptReviewUnit.id}`,title:`개념복습학습 · ${mathConceptReviewUnit.title}`,detail:'완료',completedAt:attemptedAt});}
   const wrong=correct?null:{question,item,answer:String(mathConceptReviewAnswer),attemptedAt};mathConceptReviewAnswer='';await saveMathConceptReviewLearning_(wrong);renderMathConceptReviewLearning_();
 }
 async function restartMathConceptReviewLearning(){const completedAt=mathConceptReviewState.completedAt,firstCompletedAt=mathConceptReviewState.firstCompletedAt||completedAt,history=[...(mathConceptReviewState.history||[])];mathConceptReviewState={...defaultMathConceptReviewState_(),completed:true,completedAt,firstCompletedAt,relearning:true,history};mathConceptReviewAnswer='';await saveMathConceptReviewLearning_();renderMathConceptReviewLearning_();}
@@ -4879,9 +4882,9 @@ async function saveMathConceptReviewLearning_(wrong=null){
 let mathBasicReviewUnit=null,mathBasicReviewItems=[],mathBasicReviewState=null,mathBasicReviewAnswer='',mathBasicReviewShowingConcept=false;
 function getMathBasicReviewCurrent_(){return mathBasicReviewItems.find(item=>mathBasicReviewState?.results?.[item.conceptId]?.passed!==true)||null;}
 function mathBasicReviewQuestionHtml_(question){
-  const choices=Array.isArray(question.choices)?question.choices.map((choice,index)=>`<button type="button" class="math-choice${mathBasicReviewAnswer===choice?' selected':''}" onclick="selectMathBasicReviewAnswer(${index})">${index+1}. ${mathEscape(choice)}</button>`).join(''):'';
+  const choices=Array.isArray(question.choices)?question.choices.map((choice,index)=>`<button type="button" class="math-choice${mathBasicReviewAnswer===choice?' selected':''}" onclick="selectMathBasicReviewAnswer(${index})">${index+1}. ${mathFractionizeText_(choice)}</button>`).join(''):'';
   const input=choices?'':(mathFractionInputHtml_(question,mathBasicReviewAnswer,'mathBasicReviewAnswer')||`<input class="math-answer" inputmode="text" autocomplete="off" placeholder="정답을 직접 입력하세요" value="${mathEscape(mathBasicReviewAnswer)}" oninput="mathBasicReviewAnswer=this.value">`);
-  return `<h2>${mathEscape(question.question)}</h2>${question.diagram?`<div class="math-diagram">${question.diagram}</div>`:''}${choices||input}<div class="math-actions"><button type="button" class="math-primary" onclick="submitMathBasicReviewAnswer()">답 확인하기</button></div>`;
+  return `<h2>${mathFractionizeText_(question.question)}</h2>${question.diagram?`<div class="math-diagram">${question.diagram}</div>`:''}${choices||input}<div class="math-actions"><button type="button" class="math-primary" onclick="submitMathBasicReviewAnswer()">답 확인하기</button></div>`;
 }
 async function openMathBasicConceptReview(unitId){
   if(!playerName)return;
@@ -4915,7 +4918,7 @@ function renderMathBasicConceptReview_(){
   if(!current){if(step)step.textContent='기본개념 확인 완료';root.innerHTML=`<section class="math-card"><div class="math-kicker">${mathEscape(mathBasicReviewUnit.title)}</div><h2>기본개념을 모두 기억하고 있어요!</h2><div class="math-actions"><button type="button" class="math-primary" onclick="closeMathConceptLearning()">학습 홈으로</button></div></section>`;renderIncompleteUnitsSection();return;}
   if(step)step.textContent=`기본개념 확인 ${passed+1} / ${mathBasicReviewItems.length}`;const result=mathBasicReviewState.results[current.conceptId]||{};
   if(mathBasicReviewShowingConcept){const concept=(mathBasicReviewUnit.coreConcepts||[]).find(item=>item.id===current.conceptId),lesson=concept?.lesson||{};
-    root.innerHTML=`<section class="math-card"><div class="math-kicker">틀린 개념만 짧게 확인</div><h2>${mathEscape(concept?.title||current.title)}</h2>${lesson.summary?`<p>${mathEscape(lesson.summary)}</p>`:''}${lesson.keyPoint?`<p><strong>${mathEscape(lesson.keyPoint)}</strong></p>`:''}${lesson.diagram?`<div class="math-diagram">${lesson.diagram}</div>`:''}${lesson.example?`<div class="math-equation">${mathEscape(lesson.example)}</div>`:''}<div class="math-actions"><button type="button" class="math-primary" onclick="startMathBasicReviewRetry()">다시 확인하기 →</button></div></section>`;return;}
+    root.innerHTML=`<section class="math-card"><div class="math-kicker">틀린 개념만 짧게 확인</div><h2>${mathEscape(concept?.title||current.title)}</h2>${lesson.summary?`<p>${mathFractionizeText_(lesson.summary)}</p>`:''}${lesson.keyPoint?`<p><strong>${mathFractionizeText_(lesson.keyPoint)}</strong></p>`:''}${lesson.diagram?`<div class="math-diagram">${lesson.diagram}</div>`:''}${lesson.example?`<div class="math-equation">${mathFractionizeText_(lesson.example)}</div>`:''}<div class="math-actions"><button type="button" class="math-primary" onclick="startMathBasicReviewRetry()">다시 확인하기 →</button></div></section>`;return;}
   const question=result.needsReview?current.retryQuestion:current.question;root.innerHTML=`<section class="math-card"><div class="math-kicker">설명 없이 기억 확인 · ${mathEscape(current.title)}</div>${mathBasicReviewQuestionHtml_(question)}</section>`;
 }
 function selectMathBasicReviewAnswer(index){const current=getMathBasicReviewCurrent_(),result=current&&mathBasicReviewState.results[current.conceptId],question=result?.needsReview?current.retryQuestion:current?.question;mathBasicReviewAnswer=question?.choices?.[index]??'';renderMathBasicConceptReview_();}
@@ -4930,7 +4933,7 @@ async function submitMathBasicReviewAnswer(){
   const current=getMathBasicReviewCurrent_();if(!current||mathBasicReviewAnswer==='')return;const previous=mathBasicReviewState.results[current.conceptId]||{},question=previous.needsReview?current.retryQuestion:current.question;
   const correct=isMathAnswerCorrect(question,mathBasicReviewAnswer),attempt={questionId:question.id,answer:String(mathBasicReviewAnswer),correct,attemptedAt:new Date().toISOString()};
   mathBasicReviewState.results[current.conceptId]={...previous,passed:correct,needsReview:!correct,attempts:[...(previous.attempts||[]),attempt]};mathBasicReviewAnswer='';mathBasicReviewShowingConcept=!correct;
-  if(correct&&!getMathBasicReviewCurrent_()){const finishedAt=new Date().toISOString(),firstCompletion=mathBasicReviewState.completed!==true;mathBasicReviewState.completed=true;mathBasicReviewState.completedAt=mathBasicReviewState.completedAt||finishedAt;mathBasicReviewState.firstCompletedAt=mathBasicReviewState.firstCompletedAt||mathBasicReviewState.completedAt;if(mathBasicReviewState.relearning){mathBasicReviewState.history=[...(mathBasicReviewState.history||[]),{completedAt:finishedAt,results:JSON.parse(JSON.stringify(mathBasicReviewState.results))}];mathBasicReviewState.relearning=false;}else if(firstCompletion)mathBasicReviewState.firstCompletedAt=finishedAt;}
+  if(correct&&!getMathBasicReviewCurrent_()){const finishedAt=new Date().toISOString(),firstCompletion=mathBasicReviewState.completed!==true;mathBasicReviewState.completed=true;mathBasicReviewState.completedAt=mathBasicReviewState.completedAt||finishedAt;mathBasicReviewState.firstCompletedAt=mathBasicReviewState.firstCompletedAt||mathBasicReviewState.completedAt;if(mathBasicReviewState.relearning){mathBasicReviewState.history=[...(mathBasicReviewState.history||[]),{completedAt:finishedAt,results:JSON.parse(JSON.stringify(mathBasicReviewState.results))}];mathBasicReviewState.relearning=false;}else if(firstCompletion)mathBasicReviewState.firstCompletedAt=finishedAt;if(firstCompletion)addCompletedStudyActivity({source:'math',key:`math_basicReview_${mathBasicReviewUnit.id}`,title:`기본개념 확인 · ${mathBasicReviewUnit.title}`,detail:'완료',completedAt:finishedAt});}
   const wrong=correct?null:{question,conceptId:current.conceptId,answer:String(attempt.answer),attemptedAt:attempt.attemptedAt};
   await saveMathBasicConceptReview_(playerName,mathBasicReviewUnit.id,mathBasicReviewState,wrong);renderMathBasicConceptReview_();
 }
@@ -13508,9 +13511,25 @@ function commitMathProgress(resume){
 }
 
 function mathEscape(value){return String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+function mathFractionizeText_(value){return mathEscape(value).replace(/([-−]?\d+)\s*\/\s*([-−]?\d+)/g,(m,num,den)=>`<span class="math-frac" role="math" aria-label="${den}분의 ${num}"><span class="math-frac-num">${num}</span><span class="math-frac-bar"></span><span class="math-frac-den">${den}</span></span>`);}
 function normalizeMathAnswer(value){return String(value??'').toLowerCase().replace(/\s+/g,'').replace(/[×*]/g,'x').replace(/°/g,'');}
-function isMathAnswerCorrect(question,value){return (question.acceptedAnswers||[question.correctAnswer]).some(a=>normalizeMathAnswer(a)===normalizeMathAnswer(value));}
-function isMathFractionAnswerQuestion_(question){return !Array.isArray(question?.choices)&&(question?.acceptedAnswers||[question?.correctAnswer]).some(answer=>/^[-−]?\d+\s*\/\s*[-−]?\d+$/.test(String(answer||'')));}
+// accepted/value가 둘 다 "정수/정수" 분수 형태이면 약분되지 않은 동치 분수도 정답으로 인정한다(예: 24/26 === 12/13).
+// 그 외 형태(숫자·소수·문자·식 등)는 기존과 동일하게 정규화된 문자열 완전 일치만 인정한다.
+function mathAnswerFractionEquivalent_(a,b){
+  const fa=a.match(/^(-?\d+)\/(-?\d+)$/),fb=b.match(/^(-?\d+)\/(-?\d+)$/);
+  if(!fa||!fb)return false;
+  const an=Number(fa[1]),ad=Number(fa[2]),bn=Number(fb[1]),bd=Number(fb[2]);
+  if(!ad||!bd)return false;
+  return an*bd===bn*ad;
+}
+function isMathAnswerCorrect(question,value){
+  // acceptedAnswers가 빈 배열([])로 저장된 경우(예: 오답연습 항목 생성 시 원본 문제에 acceptedAnswers가 없어 []로 대체된 경우)
+  // "||" 폴백이 동작하지 않아 어떤 답을 입력해도 항상 오답 처리되던 버그를 수정 — 빈 배열도 "제공되지 않음"으로 취급한다.
+  const accepted=Array.isArray(question?.acceptedAnswers)&&question.acceptedAnswers.length?question.acceptedAnswers:[question?.correctAnswer];
+  const normalizedValue=normalizeMathAnswer(value);
+  return accepted.some(a=>{const normalizedAccepted=normalizeMathAnswer(a);return normalizedAccepted===normalizedValue||mathAnswerFractionEquivalent_(normalizedAccepted,normalizedValue);});
+}
+function isMathFractionAnswerQuestion_(question){return (!Array.isArray(question?.choices)||question.choices.length===0)&&(question?.acceptedAnswers||[question?.correctAnswer]).some(answer=>/^[-−]?\d+\s*\/\s*[-−]?\d+$/.test(String(answer||'')));}
 function mathFractionInputHtml_(question,value,answerVariable,extraOnInput=''){
   if(!isMathFractionAnswerQuestion_(question))return '';
   const parts=String(value||'').split('/'),numerator=parts.length===2?parts[0]:'',denominator=parts.length===2?parts[1]:'';
@@ -13528,10 +13547,10 @@ function mathProgressTrace(stage,progress,unit){
   console.info('[MathProgress v2]',stage,{contentVersion:progress?.contentVersion??null,phase:progress?.resume?.phase??null,currentIndex:prerequisiteIndex,questionId:progress?.resume?.questionId??null,resume:progress?.resume||null,prerequisiteResults:progress?.prerequisite?.results||{},reviewQueue,syncRevision:progress?.syncRevision??null});
 }
 function mathQuestionHtml(question,submitFn){
-  const choices=Array.isArray(question.choices)&&question.choices.length?question.choices.map((choice,i)=>`<button type="button" class="math-choice ${mathSelectedAnswer===choice?'selected':''}" onclick="selectMathAnswer(${JSON.stringify(choice).replace(/"/g,'&quot;')})">${i+1}. ${mathEscape(choice)}</button>`).join(''):(mathFractionInputHtml_(question,mathSelectedAnswer,'mathSelectedAnswer')||`<input class="math-answer" id="math-answer-input" inputmode="text" autocomplete="off" placeholder="답을 입력하세요" value="${mathEscape(mathSelectedAnswer)}" oninput="mathSelectedAnswer=this.value">`);
-  return `<div class="math-equation">${mathEscape(question.question)}</div>${choices}${mathFeedback?`<div class="math-feedback ${mathFeedback.correct?'ok':'bad'}">${mathFeedback.correct?'✓ 정답':'△ 다시 확인'} · ${mathEscape(mathFeedback.explanation)}</div>`:''}<div class="math-actions"><button type="button" class="math-primary" onclick="${submitFn}">답 확인하기</button></div>`;
+  const choices=Array.isArray(question.choices)&&question.choices.length?question.choices.map((choice,i)=>`<button type="button" class="math-choice ${mathSelectedAnswer===choice?'selected':''}" data-choice="${mathEscape(choice)}" onclick="selectMathAnswer(${JSON.stringify(choice).replace(/"/g,'&quot;')})">${i+1}. ${mathFractionizeText_(choice)}</button>`).join(''):(mathFractionInputHtml_(question,mathSelectedAnswer,'mathSelectedAnswer')||`<input class="math-answer" id="math-answer-input" inputmode="text" autocomplete="off" placeholder="답을 입력하세요" value="${mathEscape(mathSelectedAnswer)}" oninput="mathSelectedAnswer=this.value">`);
+  return `<div class="math-equation">${mathFractionizeText_(question.question)}</div>${choices}${mathFeedback?`<div class="math-feedback ${mathFeedback.correct?'ok':'bad'}">${mathFeedback.correct?'✓ 정답':'△ 다시 확인'} · ${mathFractionizeText_(mathFeedback.explanation)}</div>`:''}<div class="math-actions"><button type="button" class="math-primary" onclick="${submitFn}">답 확인하기</button></div>`;
 }
-function selectMathAnswer(value){mathSelectedAnswer=value;document.querySelectorAll('#math-concept-root .math-choice').forEach(btn=>btn.classList.toggle('selected',btn.textContent.replace(/^\d+\.\s*/, '')===value));}
+function selectMathAnswer(value){mathSelectedAnswer=value;document.querySelectorAll('#math-concept-root .math-choice').forEach(btn=>btn.classList.toggle('selected',btn.dataset.choice===value));}
 function setMathPhaseLabel(text){const el=document.getElementById('math-step-label');if(el)el.textContent=text||'';}
 function renderMathCard(kicker,title,body){document.getElementById('math-concept-root').innerHTML=`<section class="math-card"><div class="math-kicker">${mathEscape(kicker)}</div><h2>${mathEscape(title)}</h2>${body}</section>`;}
 
@@ -13643,7 +13662,7 @@ function renderMathPrerequisiteReview(){
   const item=mathActiveUnit.prerequisites.find(p=>p.id===reviewQueueIds[reviewIndex]);
   if(!item){commitMathProgress({phase:'prerequisite-result',conceptId:null,questionId:null,reviewQueueIds:[]});renderMathPhase();return;}
   setMathPhaseLabel(`③ 필요한 개념 복습 ${reviewIndex+1} / ${reviewQueueIds.length}`);
-  renderMathCard('짧은 복습',item.title,`<p>${mathEscape(mathReviewSummary(item))}</p><div class="math-equation">${mathEscape(mathReviewExample(item))}</div>${mathQuestionHtml(mathReviewQuestion(item),'submitMathPrerequisiteReview()')}`);
+  renderMathCard('짧은 복습',item.title,`<p>${mathFractionizeText_(mathReviewSummary(item))}</p><div class="math-equation">${mathFractionizeText_(mathReviewExample(item))}</div>${mathQuestionHtml(mathReviewQuestion(item),'submitMathPrerequisiteReview()')}`);
 }
 function submitMathPrerequisiteReview(){
   if(!String(mathSelectedAnswer).trim()){showToast2('답을 선택하거나 입력해주세요.');return;}
@@ -13661,7 +13680,7 @@ function renderMathCoreConcept(){
   const weak=(concept.prerequisiteLinks||[]).find(id=>mathProgress.prerequisite.results[id]?.status==='needs-review');
   const note=weak?`<div class="math-prereq-note">△ 여기서는 ${mathEscape(mathActiveUnit.prerequisites.find(p=>p.id===weak)?.title)} 개념이 필요해요.</div>`:'';
   const lessonLines=concept.lesson?[concept.lesson.summary,concept.lesson.keyPoint,concept.lesson.example].filter(Boolean):(concept.lines||[]);
-  const lines=lessonLines.map(line=>line.includes('=')||line.includes('→')?`<div class="math-equation">${mathEscape(line)}</div>`:`<p>${mathEscape(line)}</p>`).join('');
+  const lines=lessonLines.map(line=>line.includes('=')||line.includes('→')?`<div class="math-equation">${mathFractionizeText_(line)}</div>`:`<p>${mathFractionizeText_(line)}</p>`).join('');
   renderMathCard('핵심개념',concept.title,`${note}${lines}<div class="math-actions"><button class="math-primary" onclick="openMathConceptCheck()">확인문제 풀기 →</button></div>`);
 }
 function openMathConceptCheck(){const c=currentCoreConcept();mathSelectedAnswer='';mathFeedback=null;commitMathProgress({phase:'concept-check',conceptId:c.id,questionId:c.checkQuestion.id});renderMathPhase();}
@@ -13695,7 +13714,10 @@ function renderMathResult(){
   renderMathCard('오늘의 수학 개념 결과',`${mathProgress.finalAssessment.correctCount} / ${mathActiveUnit.finalQuestions.length} 정답`,`<div class="math-status-list">${rows}</div><details><summary>선수개념 결과 보기</summary><div class="math-status-list">${preRows}</div></details><div class="math-actions"><button class="math-primary" onclick="completeMathLearning()">학습 완료하기</button></div>`);
 }
 function reviewMathConcept(id){commitMathProgress({phase:'core-concept',conceptId:id,questionId:null});renderMathPhase();}
-function completeMathLearning(){mathEntryIntro=false;mathProgress.completed=true;mathProgress.completedAt=new Date().toISOString();commitMathProgress({phase:'result',conceptId:null,questionId:null});SFX.complete();showToast2('✅ 수학개념학습을 완료했어요!');renderMathPhase();}
+function completeMathLearning(){mathEntryIntro=false;mathProgress.completed=true;mathProgress.completedAt=new Date().toISOString();commitMathProgress({phase:'result',conceptId:null,questionId:null});SFX.complete();showToast2('✅ 수학개념학습을 완료했어요!');
+  addCompletedStudyActivity({source:'math',key:`math_concept_${mathActiveUnit.id}`,title:`수학개념학습 · ${mathActiveUnit.title}`,detail:'완료',completedAt:mathProgress.completedAt});
+  addCompletedStudyActivity({source:'math',key:`math_unitQuiz_${mathActiveUnit.id}`,title:`수학 단원 퀴즈 · ${mathActiveUnit.title}`,detail:`${mathProgress.finalAssessment.correctCount}/${mathActiveUnit.finalQuestions.length} 정답`,completedAt:mathProgress.completedAt});
+  renderMathPhase();}
 function showSavedMathResult(){mathEntryIntro=false;commitMathProgress({phase:'result'});renderMathPhase();}
 function restartMathLearning(){
   mathEntryIntro=false;

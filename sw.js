@@ -1,7 +1,7 @@
-const CACHE_NAME = 'samguk-culture-quiz-v65-numeric-keypad';
+const CACHE_NAME = 'samguk-culture-quiz-v66-math-fraction-fix';
 const ASSETS = [
   './index.html',
-  './app.js?v=20260902-numeric-keypad-1',
+  './app.js?v=20260902-math-fraction-fix-1',
   './math-flow-v2.js?v=20260901-flow-11',
   './learning-content.js?v=20260825-content-19',
   './math-content.js?v=20260901-math-5',
