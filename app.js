@@ -4859,13 +4859,21 @@ async function submitMathWrongPracticeAnswer(){
   if(mathWrongPracticeReplayMode){
     mathWrongPracticeQueue.shift();mathWrongPracticeSelected=null;mathWrongPracticeFeedback=null;mathWrongPracticePhase='concept';renderMathWrongPractice_();return;
   }
-  await resolveMathWrongPracticeItem_(playerName,item.unitId,item.questionId,mathWrongPracticeSelected);
-  if(isLearningWriteBlocked())mathWrongPracticeTestSkippedIds_.add(item.questionId);
-  if(getMathWrongPracticeItems_(playerName).filter(i=>i.unitId===item.unitId).length===0){
-    addCompletedStudyActivity({source:'math',key:`math_wrongPractice_${item.unitId}_${todayLocalDate()}`,title:`오답연습 · ${item.unitTitle}`,detail:'완료',completedAt:new Date().toISOString()});
-  }
+  const submittedAnswer=mathWrongPracticeSelected;
+  // 학생 모드도 느린 서버 왕복을 화면 전환 앞에서 기다리지 않는다. 현재 세션에서는
+  // 정답 문제를 먼저 제외해 다음 문제를 즉시 보여주고, 서버 확정 저장은 이어서 수행한다.
+  // 저장 실패 시 서버의 resolved 값은 바꾸지 않으므로 새로 진입하면 다시 복구할 수 있다.
+  mathWrongPracticeTestSkippedIds_.add(item.questionId);
   mathWrongPracticeSelected=null;mathWrongPracticeFeedback=null;mathWrongPracticePhase='concept';
   renderMathWrongPractice_();
+  if(isLearningWriteBlocked())return;
+  const saved=await resolveMathWrongPracticeItem_(playerName,item.unitId,item.questionId,submittedAnswer);
+  if(saved){
+    mathWrongPracticeTestSkippedIds_.delete(item.questionId);
+    if(getMathWrongPracticeItems_(playerName).filter(i=>i.unitId===item.unitId).length===0){
+      addCompletedStudyActivity({source:'math',key:`math_wrongPractice_${item.unitId}_${todayLocalDate()}`,title:`오답연습 · ${item.unitTitle}`,detail:'완료',completedAt:new Date().toISOString()});
+    }
+  }
 }
 
 async function resolveMathWrongPracticeItem_(name,unitId,questionId,answer){
