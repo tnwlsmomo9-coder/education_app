@@ -5,7 +5,7 @@
 <!-- app.js/learning-content.js는 아래에서 rAF 이후 동적으로 <script> 삽입되어 실행되지만,
      다운로드 자체는 여기서 미리 시작해두면 두 파일이 순차가 아니라 병렬로 받아져 초기 로딩이 빨라집니다.
      버전 쿼리(?v=...)는 실제 <script src=...> 값과 반드시 동일하게 유지해야 브라우저가 프리로드를 재사용합니다. -->
-<link rel="preload" as="script" href="app.js?v=20260902-full-update-1">
+<link rel="preload" as="script" href="app.js?v=20260903-full-update-2">
 <link rel="preload" as="script" href="learning-content.js?v=20260825-content-19">
 <link rel="preload" as="script" href="math-flow-v2.js?v=20260901-flow-11">
 <script src="math-flow-v2.js?v=20260901-flow-11"></script>
@@ -4554,7 +4554,7 @@ h1,h2,h3,.title-label{
 
 <script>
 (()=>{
-  const APP_SCRIPT_URL='app.js?v=20260902-full-update-1';
+  const APP_SCRIPT_URL='app.js?v=20260903-full-update-2';
   window.__APP_SCRIPT_URL=APP_SCRIPT_URL; // 디버그 로그(app.js __perfMark)가 실제 로드 버전을 하드코딩 없이 참조하도록 노출
   window.__appMainReady=false;
   window.__pendingShellStudent='';

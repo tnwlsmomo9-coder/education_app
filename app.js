@@ -3581,6 +3581,10 @@ function getRequiredLearningItemsForModule_(name,moduleKey,progress,incompleteIt
     keys=student&&content?getAssignedMathUnitIds_(student,content).filter(unitId=>content.units?.[unitId]?.conceptReviewLearning):[];
   }else if(moduleKey==='mathConceptExtension'){
     keys=student&&content?getAssignedMathUnitIds_(student,content).filter(unitId=>mathServerConfirmedProgressCache[mathConceptCacheKey_(name,unitId)]?.completed===true):[];
+  }else if(moduleKey==='mathBasicConceptReviewExtension'){
+    keys=student&&content?getAssignedMathUnitIds_(student,content).filter(unitId=>mathServerConfirmedProgressCache[mathConceptCacheKey_(name,unitId)]?.basicConceptReview?.completed===true):[];
+  }else if(moduleKey==='mathConceptReviewLearningExtension'){
+    keys=student&&content?getAssignedMathUnitIds_(student,content).filter(unitId=>mathServerConfirmedProgressCache[mathConceptCacheKey_(name,unitId)]?.conceptReviewLearning?.completed===true):[];
   }else if(moduleKey==='mathAppliedConcept'){
     keys=student&&content?getAssignedMathUnitIds_(student,content).filter(unitId=>content.units?.[unitId]?.appliedConcepts):[];
   }else if(moduleKey==='mathWrongPractice'){
@@ -3597,6 +3601,8 @@ function getRequiredLearningItemsForModule_(name,moduleKey,progress,incompleteIt
     if(moduleKey==='mathBasicConceptReview')completed=server?.basicConceptReview?.completed===true;
     if(moduleKey==='mathConceptReviewLearning')completed=server?.conceptReviewLearning?.completed===true;
     if(moduleKey==='mathConceptExtension')completed=getMathUnitNewItemsCount_(name,key)===0;
+    if(moduleKey==='mathBasicConceptReviewExtension')completed=getMathBasicReviewNewItemsCount_(name,key)===0;
+    if(moduleKey==='mathConceptReviewLearningExtension')completed=getMathConceptReviewLearningNewItemsCount_(name,key)===0;
     if(moduleKey==='mathAppliedConcept')completed=server?.appliedConcepts?.completed===true;
     if(moduleKey==='mathWrongPractice')completed=false;
     return requiredLearningItem_(moduleKey,key,completed,item);
@@ -3657,6 +3663,18 @@ const LEARNING_MODULES={
     calculateProgress:calculateMathBasicConceptReviewProgress,
     getIncompleteItems:getMathBasicConceptReviewIncompleteItems,
     getResumeTarget:getMathBasicConceptReviewResumeTarget
+  },
+  mathBasicConceptReviewExtension:{
+    key:'mathBasicConceptReviewExtension', title:'수학 기본개념 확인 · 새 학습', includeInOverall:true,
+    calculateProgress:calculateMathBasicConceptReviewExtensionProgress,
+    getIncompleteItems:getMathBasicConceptReviewExtensionIncompleteItems,
+    getResumeTarget:getMathBasicConceptReviewExtensionResumeTarget
+  },
+  mathConceptReviewLearningExtension:{
+    key:'mathConceptReviewLearningExtension', title:'수학 개념복습학습 · 새 학습', includeInOverall:true,
+    calculateProgress:calculateMathConceptReviewLearningExtensionProgress,
+    getIncompleteItems:getMathConceptReviewLearningExtensionIncompleteItems,
+    getResumeTarget:getMathConceptReviewLearningExtensionResumeTarget
   },
   mathConceptExtension:{
     key:'mathConceptExtension', title:'수학 새 학습', includeInOverall:true,
@@ -4398,15 +4416,40 @@ function getServerMathConceptProgress_(name,unitId){
   return progress&&progress.studentKey===name&&progress.unitId===unitId?progress:null;
 }
 
+// 완료된 단원/모듈에 콘텐츠가 추가되거나 교체된 뒤 아직 풀지 않은 문항(또는 개념) 개수를 id 기준으로 센다.
+// mathConcept(선수개념/핵심개념/최종평가), mathBasicConceptReview, mathConceptReviewLearning이 공통으로 쓰는
+// 순수 비교 함수 — 어떤 id 목록이 어떤 완료 기록 맵에 없는지만 판별하며 상태를 전혀 변경하지 않는다.
+function mathCountNewIds_(ids,answeredMap){
+  return (ids||[]).filter(id=>id&&!(id in (answeredMap||{}))).length;
+}
 // 완료된 단원에 콘텐츠가 추가된 뒤 아직 풀지 않은 문항 개수(문제 id 기준, math-flow-v2.js의 newItemIds()와 동일한 판별
 // 방식). 서버 확정 기록(mathServerConfirmedProgressCache) 기준이라 새로고침/다른 기기에서도 같은 값이 나온다.
 function getMathUnitNewItemsCount_(name,unitId){
   const content=window.MATH_CONTENT||window.MATH_CONCEPT_CONTENT,unit=content?.units?.[unitId];
   const raw=getServerMathConceptProgress_(name,unitId);
   if(!unit||!raw||raw.completed!==true)return 0;
-  return (unit.prerequisites||[]).filter(p=>!(p.id in (raw.prerequisite?.results||{}))).length
-    +(unit.coreConcepts||[]).filter(c=>!(c.id in (raw.core?.checks||{}))).length
-    +(unit.finalQuestions||[]).filter(q=>!(q.id in (raw.finalAssessment?.latestAnswers||{}))).length;
+  return mathCountNewIds_((unit.prerequisites||[]).map(p=>p.id),raw.prerequisite?.results||{})
+    +mathCountNewIds_((unit.coreConcepts||[]).map(c=>c.id),raw.core?.checks||{})
+    +mathCountNewIds_((unit.finalQuestions||[]).map(q=>q.id),raw.finalAssessment?.latestAnswers||{});
+}
+// 완료된 기본개념 확인(basicConceptReview)에 콘텐츠가 교체/추가된 뒤 아직 풀지 않은 개념 개수.
+// 완료 기록(results)은 개념 id(conceptId) 기준으로 저장되므로 그 키 목록과 비교한다.
+function getMathBasicReviewNewItemsCount_(name,unitId){
+  const content=window.MATH_CONTENT||window.MATH_CONCEPT_CONTENT,unit=content?.units?.[unitId];
+  if(!unit||!Array.isArray(unit.basicConceptReview)||!unit.basicConceptReview.length)return 0;
+  const raw=getServerMathConceptProgress_(name,unitId);
+  if(!raw||raw.basicConceptReview?.completed!==true)return 0;
+  return mathCountNewIds_(unit.basicConceptReview.map(item=>item.conceptId),raw.basicConceptReview?.results||{});
+}
+// 완료된 개념복습학습(conceptReviewLearning)에 콘텐츠가 교체/추가된 뒤 아직 풀지 않은 문항 개수.
+// 완료 기록(results)은 문제 id(question.id) 기준으로 저장되므로 그 키 목록과 비교한다.
+function getMathConceptReviewLearningNewItemsCount_(name,unitId){
+  const content=window.MATH_CONTENT||window.MATH_CONCEPT_CONTENT,unit=content?.units?.[unitId];
+  if(!unit?.conceptReviewLearning)return 0;
+  const raw=getServerMathConceptProgress_(name,unitId);
+  if(!raw||raw.conceptReviewLearning?.completed!==true)return 0;
+  const ids=(unit.conceptReviewLearning.questions||[]).map(item=>item.question?.id).filter(Boolean);
+  return mathCountNewIds_(ids,raw.conceptReviewLearning?.results||{});
 }
 
 function trustedMathProgressNow_(){
@@ -4562,6 +4605,45 @@ function getMathConceptExtensionIncompleteItems(name){
   }).filter(Boolean);
 }
 function getMathConceptExtensionResumeTarget(name){return getMathConceptExtensionIncompleteItems(name)[0]?.resumeTarget||null;}
+
+// 완료된 기본개념 확인에 새로 추가/교체된 문항만 별도로 추적하는 형제 모듈 — mathConceptExtension과 동일한 패턴.
+// 기존 완료 여부/완료시각/응답 기록은 전혀 건드리지 않고, 새 문항 유무만 독립적으로 판정한다.
+function calculateMathBasicConceptReviewExtensionProgress(name){
+  const student=STUDENTS.find(item=>item.name===name),content=window.MATH_CONTENT||window.MATH_CONCEPT_CONTENT;
+  const units=student&&content?getAssignedMathUnitIds_(student,content).filter(unitId=>getServerMathConceptProgress_(name,unitId)?.basicConceptReview?.completed===true):[];
+  const total=units.length,completedCount=units.filter(unitId=>getMathBasicReviewNewItemsCount_(name,unitId)===0).length,incompleteCount=total-completedCount;
+  return {percent:total?Math.round(completedCount/total*100):100,completed:incompleteCount===0,status:incompleteCount?`미완료 ${incompleteCount}개`:'완료',incompleteCount,
+    resumeTarget:getMathBasicConceptReviewExtensionIncompleteItems(name)[0]?.resumeTarget||null,completedAmount:completedCount,totalAmount:total,includeInOverall:total>0};
+}
+function getMathBasicConceptReviewExtensionIncompleteItems(name){
+  const student=STUDENTS.find(item=>item.name===name),content=window.MATH_CONTENT||window.MATH_CONCEPT_CONTENT;if(!student||!content)return [];
+  return getAssignedMathUnitIds_(student,content).map((unitId,index)=>{
+    if(getServerMathConceptProgress_(name,unitId)?.basicConceptReview?.completed!==true)return null;
+    const newCount=getMathBasicReviewNewItemsCount_(name,unitId);if(newCount<=0)return null;
+    const unit=content.units?.[unitId],lock=getMathSequentialLock_(name,unitId,content);
+    return {moduleKey:'mathBasicConceptReviewExtension',itemKey:unitId,title:`수학 기본개념 확인 · ${unit?.title||unitId}`,subtitle:'수학',percent:0,status:`새 학습 ${newCount}문제`,locked:lock.locked,lockMessage:lock.locked?'이전 학습 완료 후 가능':'',resumeTarget:{type:'mathBasicConceptReview',unitId,unitKey:unitId},sortOrder:1004+(index*3)+1};
+  }).filter(Boolean);
+}
+function getMathBasicConceptReviewExtensionResumeTarget(name){return getMathBasicConceptReviewExtensionIncompleteItems(name)[0]?.resumeTarget||null;}
+
+// 완료된 개념복습학습에 새로 추가/교체된 문항만 별도로 추적하는 형제 모듈 — mathConceptExtension과 동일한 패턴.
+function calculateMathConceptReviewLearningExtensionProgress(name){
+  const student=STUDENTS.find(item=>item.name===name),content=window.MATH_CONTENT||window.MATH_CONCEPT_CONTENT;
+  const units=student&&content?getAssignedMathUnitIds_(student,content).filter(unitId=>getServerMathConceptProgress_(name,unitId)?.conceptReviewLearning?.completed===true):[];
+  const total=units.length,completedCount=units.filter(unitId=>getMathConceptReviewLearningNewItemsCount_(name,unitId)===0).length,incompleteCount=total-completedCount;
+  return {percent:total?Math.round(completedCount/total*100):100,completed:incompleteCount===0,status:incompleteCount?`미완료 ${incompleteCount}개`:'완료',incompleteCount,
+    resumeTarget:getMathConceptReviewLearningExtensionIncompleteItems(name)[0]?.resumeTarget||null,completedAmount:completedCount,totalAmount:total,includeInOverall:total>0};
+}
+function getMathConceptReviewLearningExtensionIncompleteItems(name){
+  const student=STUDENTS.find(item=>item.name===name),content=window.MATH_CONTENT||window.MATH_CONCEPT_CONTENT;if(!student||!content)return [];
+  return getAssignedMathUnitIds_(student,content).map((unitId,index)=>{
+    if(getServerMathConceptProgress_(name,unitId)?.conceptReviewLearning?.completed!==true)return null;
+    const newCount=getMathConceptReviewLearningNewItemsCount_(name,unitId);if(newCount<=0)return null;
+    const unit=content.units?.[unitId],lock=getMathSequentialLock_(name,unitId,content);
+    return {moduleKey:'mathConceptReviewLearningExtension',itemKey:unitId,title:`수학 개념복습학습 · ${unit?.title||unitId}`,subtitle:'수학',percent:0,status:`새 학습 ${newCount}문제`,locked:lock.locked,lockMessage:lock.locked?'이전 학습 완료 후 가능':'',resumeTarget:{type:'mathConceptReviewLearning',unitId,unitKey:unitId},sortOrder:1005+(index*3)+1};
+  }).filter(Boolean);
+}
+function getMathConceptReviewLearningExtensionResumeTarget(name){return getMathConceptReviewLearningExtensionIncompleteItems(name)[0]?.resumeTarget||null;}
 
 function getMathConceptReviewLearningIncompleteItems(name){
   const student=STUDENTS.find(item=>item.name===name),content=window.MATH_CONTENT||window.MATH_CONCEPT_CONTENT;if(!student||!content)return [];
@@ -13518,7 +13600,7 @@ function loadMathConceptContent(){
   if(mathContentLoadPromise)return mathContentLoadPromise;
   mathContentLoadPromise=new Promise((resolve,reject)=>{
     const script=document.createElement('script');
-    script.src='math-content.js?v=20260902-math-14';
+    script.src='math-content.js?v=20260903-math-15';
     script.onload=()=>{const content=window.MATH_CONTENT||window.MATH_CONCEPT_CONTENT;content?resolve(content):reject(new Error('수학 콘텐츠 형식 오류'));};
     script.onerror=()=>reject(new Error('수학 콘텐츠 네트워크 오류'));
     document.head.appendChild(script);
