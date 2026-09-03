@@ -5,10 +5,10 @@
 <!-- app.js/learning-content.js는 아래에서 rAF 이후 동적으로 <script> 삽입되어 실행되지만,
      다운로드 자체는 여기서 미리 시작해두면 두 파일이 순차가 아니라 병렬로 받아져 초기 로딩이 빨라집니다.
      버전 쿼리(?v=...)는 실제 <script src=...> 값과 반드시 동일하게 유지해야 브라우저가 프리로드를 재사용합니다. -->
-<link rel="preload" as="script" href="app.js?v=20260903-full-update-2">
+<link rel="preload" as="script" href="app.js?v=20260903-full-update-4">
 <link rel="preload" as="script" href="learning-content.js?v=20260825-content-19">
-<link rel="preload" as="script" href="math-flow-v2.js?v=20260901-flow-11">
-<script src="math-flow-v2.js?v=20260901-flow-11"></script>
+<link rel="preload" as="script" href="math-flow-v2.js?v=20260903-flow-12">
+<script src="math-flow-v2.js?v=20260903-flow-12"></script>
 <script>
 // ===== ?perf=1 전용 임시 진단 모듈 =====
 // 일반 접속 시: 아래 IIFE는 조건검사 1줄만 실행하고 즉시 종료(추가 렌더링·fetch래핑·오버헤드 없음)
@@ -1798,9 +1798,6 @@ body:has(#student-select-view[style*="display: none"]){
 }
 
 /* 수학개념학습 — 기존 카드/버튼 토큰을 그대로 사용하는 모바일 우선 단일 화면 */
-.math-learning-set-toggle{display:grid;grid-template-columns:1fr 1fr;gap:4px;padding:4px;margin:0 0 10px;background:var(--neutral-surface);border:1px solid var(--neutral-border);border-radius:12px}
-.math-learning-set-toggle button{min-height:40px;border:0;border-radius:9px;background:transparent;color:var(--neutral-text);font-weight:800;cursor:pointer}
-.math-learning-set-toggle button.active{background:#fff;color:var(--primary);box-shadow:var(--shadow-sm)}
 #math-concept-screen{position:relative;z-index:1;display:none;width:100%;min-width:0;max-width:720px;margin:0 auto;text-align:left;overflow:visible;pointer-events:auto}
 body:has(#math-concept-screen[style*="display: block"]){align-items:flex-start}
 .math-shell{width:100%;min-width:0;min-height:100%;padding-bottom:max(88px,calc(40px + env(safe-area-inset-bottom)))}
@@ -3652,7 +3649,6 @@ h1,h2,h3,.title-label{
 
       <div class="subject-section-body">
         <div class="section-label">📘 오늘의 수학 개념학습</div>
-        <div id="coordinate-learning-set-toggle" class="math-learning-set-toggle" role="group" aria-label="도형의 방정식 학습 선택" style="display:none"><button type="button" class="active" data-unit-id="coordinate-geometry" onclick="selectCoordinateLearningSet_('coordinate-geometry')">기존 학습</button><button type="button" data-unit-id="coordinate-geometry-advanced-application" onclick="selectCoordinateLearningSet_('coordinate-geometry-advanced-application')">심화 응용</button></div>
         <div class="unit-grid">
           <div class="unit-card" id="math-unit-card" onclick="openSelectedMathConceptLearning_()">
             <div class="unit-icon">📘</div>
@@ -4554,7 +4550,7 @@ h1,h2,h3,.title-label{
 
 <script>
 (()=>{
-  const APP_SCRIPT_URL='app.js?v=20260903-full-update-2';
+  const APP_SCRIPT_URL='app.js?v=20260903-full-update-4';
   window.__APP_SCRIPT_URL=APP_SCRIPT_URL; // 디버그 로그(app.js __perfMark)가 실제 로드 버전을 하드코딩 없이 참조하도록 노출
   window.__appMainReady=false;
   window.__pendingShellStudent='';

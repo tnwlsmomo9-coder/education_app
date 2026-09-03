@@ -4349,7 +4349,7 @@ function updateProgressColors(){
 // math-content.js에 새 유닛을 추가할 때마다 여기도 함께 갱신해야 진행률 집계에 포함된다.
 // (math-content.js는 openMathConceptLearning() 시점에 지연 로드되므로, 로그인 직후처럼
 //  아직 로드되지 않은 시점에도 동기적으로 판단할 수 있도록 고정 목록으로 관리한다.)
-const MATH_CONTENT_READY_UNITS=['linear-equation','geometry-properties','trigonometric-ratios','coordinate-geometry','coordinate-geometry-advanced-application'];
+const MATH_CONTENT_READY_UNITS=['linear-equation','geometry-properties','trigonometric-ratios','coordinate-geometry'];
 const mathConceptProgressOverviewCache={};
 const mathServerConfirmedProgressCache={};
 
@@ -4366,7 +4366,7 @@ window.onMathConceptProgressServerSaved=function(snapshot){
   mathConceptProgressOverviewCache[mathConceptCacheKey_(snapshot.studentKey,snapshot.unitId)]=JSON.parse(JSON.stringify(snapshot));
   if(typeof renderIncompleteUnitsSection==='function'&&playerName===snapshot.studentKey)renderIncompleteUnitsSection();
   if(typeof renderMathLearningCards_==='function'&&playerName===snapshot.studentKey)renderMathLearningCards_();
-  if(firstCompletion&&playerName===snapshot.studentKey&&typeof addCompletedStudyActivity==='function')addCompletedStudyActivity({source:'math',key:`math_concept_${snapshot.unitId}`,title:snapshot.unitId==='coordinate-geometry-advanced-application'?'수학 · 도형의 방정식 · 심화 응용':`수학개념학습 · ${(window.MATH_CONTENT||window.MATH_CONCEPT_CONTENT)?.units?.[snapshot.unitId]?.title||snapshot.unitId}`,detail:'완료',completedAt:snapshot.completedAt});
+  if(firstCompletion&&playerName===snapshot.studentKey&&typeof addCompletedStudyActivity==='function')addCompletedStudyActivity({source:'math',key:`math_concept_${snapshot.unitId}`,title:`수학개념학습 · ${(window.MATH_CONTENT||window.MATH_CONCEPT_CONTENT)?.units?.[snapshot.unitId]?.title||snapshot.unitId}`,detail:'완료',completedAt:snapshot.completedAt});
 };
 
 function getMathGradeConfig_(student,content=window.MATH_CONTENT||window.MATH_CONCEPT_CONTENT){
@@ -4378,7 +4378,6 @@ function getMathActiveUnitId_(student,content=window.MATH_CONTENT||window.MATH_C
 function getMathUnitIds_(student,content=window.MATH_CONTENT||window.MATH_CONCEPT_CONTENT){
   const config=getMathGradeConfig_(student,content);
   const units=Array.isArray(config?.units)?config.units.slice():(student?.mathUnitId?[student.mathUnitId]:[]);
-  if(student?.name==='최단비'&&content?.units?.['coordinate-geometry-advanced-application']&&!units.includes('coordinate-geometry-advanced-application'))units.push('coordinate-geometry-advanced-application');
   return units;
 }
 function mathConceptUnitStorageKey_(name,unitId){return 'mathConceptProgress_v1:'+name+':'+unitId;}
@@ -4543,7 +4542,7 @@ function getMathConceptIncompleteItems(name){
     const valid=!!(raw&&raw.studentKey===name&&raw.unitId===unitId&&Number(raw.contentVersion)===expectedVersion),completed=valid&&raw.completed===true;
     if(completed)return null;
     const lock=content?getMathSequentialLock_(name,unitId,content):{locked:false};
-    return {moduleKey:'mathConcept',itemKey:unitId,title:unitId==='coordinate-geometry-advanced-application'?'수학 · 도형의 방정식 · 심화 응용':`수학개념학습 · ${unit?.title||MATH_BASIC_REVIEW_UNIT_TITLES[unitId]||'수학'}`,subtitle:'수학',percent:0,status:lock.locked?'이전 학습 완료 후 가능':'학습하기',locked:lock.locked,lockMessage:lock.locked?'이전 학습 완료 후 가능':'',resumeTarget:{type:'mathConcept',unitId,unitKey:unitId},sortOrder:1003+(index*3)};
+    return {moduleKey:'mathConcept',itemKey:unitId,title:`수학개념학습 · ${unit?.title||MATH_BASIC_REVIEW_UNIT_TITLES[unitId]||'수학'}`,subtitle:'수학',percent:0,status:lock.locked?'이전 학습 완료 후 가능':'학습하기',locked:lock.locked,lockMessage:lock.locked?'이전 학습 완료 후 가능':'',resumeTarget:{type:'mathConcept',unitId,unitKey:unitId},sortOrder:1003+(index*3)};
   }).filter(Boolean);
 }
 function getMathConceptResumeTarget(name){
@@ -4551,7 +4550,7 @@ function getMathConceptResumeTarget(name){
   return items.length>0?items[0].resumeTarget:null;
 }
 
-const MATH_BASIC_REVIEW_UNIT_TITLES={'linear-equation':'일차방정식','geometry-properties':'도형의 성질','trigonometric-ratios':'삼각비','coordinate-geometry':'도형의 방정식','coordinate-geometry-advanced-application':'도형의 방정식 · 심화 응용'};
+const MATH_BASIC_REVIEW_UNIT_TITLES={'linear-equation':'일차방정식','geometry-properties':'도형의 성질','trigonometric-ratios':'삼각비','coordinate-geometry':'도형의 방정식'};
 const MATH_BASIC_REVIEW_RETROACTIVE_UNITS=new Set(Object.keys(MATH_BASIC_REVIEW_UNIT_TITLES));
 function mathLocalDayNumber_(value){const date=value instanceof Date?value:new Date(value);if(Number.isNaN(date.getTime()))return null;return Date.UTC(date.getFullYear(),date.getMonth(),date.getDate())/86400000;}
 function hasMathBasicReviewRecord_(progress){const review=progress?.basicConceptReview;return !!(review&&(review.createdAt||review.createdForCompletedAt||review.completed===true||review.completedAt||Object.keys(review.results||{}).length));}
@@ -4762,17 +4761,14 @@ function updateMathUnitCardStatus(){
   card.classList.toggle('math-incomplete',incomplete);
   renderMathLearningCards_();
 }
-let selectedCoordinateLearningSet_='coordinate-geometry';
-function selectCoordinateLearningSet_(unitId){if(!['coordinate-geometry','coordinate-geometry-advanced-application'].includes(unitId))return;selectedCoordinateLearningSet_=unitId;renderMathLearningCards_();}
-function openSelectedMathConceptLearning_(){const student=STUDENTS.find(item=>item.name===playerName);return openMathConceptLearning(student?.name==='최단비'?selectedCoordinateLearningSet_:'');}
+function openSelectedMathConceptLearning_(){return openMathConceptLearning('');}
 
 async function renderMathLearningCards_(){
   if(!playerName)return;
   let content=null;
   try{content=await loadMathConceptContent();}catch(error){return;}
   const student=STUDENTS.find(s=>s.name===playerName);
-  const toggle=document.getElementById('coordinate-learning-set-toggle'),showSetToggle=student?.name==='최단비'&&student?.grade==='high1';if(toggle){toggle.style.display=showSetToggle?'grid':'none';toggle.querySelectorAll('button').forEach(button=>button.classList.toggle('active',button.dataset.unitId===selectedCoordinateLearningSet_));}
-  const activeUnitId=showSetToggle?selectedCoordinateLearningSet_:getMathActiveUnitId_(student,content),activeUnit=content.units?.[activeUnitId];
+  const activeUnitId=getMathActiveUnitId_(student,content),activeUnit=content.units?.[activeUnitId];
   const activeRaw=getServerMathConceptProgress_(playerName,activeUnitId),activeProgress={completed:activeRaw?.completed===true,includeInOverall:true};
   const activeLock=activeUnitId?getMathSequentialLock_(playerName,activeUnitId,content):{locked:false};
   const midnightLocked=isHomeworkPastDue_(playerName,activeUnit?.scheduledDate||'');
@@ -4817,7 +4813,7 @@ async function renderMathLearningCards_(){
   if(appliedTitle)appliedTitle.textContent=activeUnit?`응용개념 · ${activeUnit.title}`:'응용개념';
   if(appliedSub)appliedSub.textContent=!activeUnit?'콘텐츠 준비 중':midnightLocked?'오늘 학습 시간이 종료되었습니다.':appliedTeacherLocked?'선생님이 잠근 학습입니다.':!activeUnit.appliedConcepts?'콘텐츠 준비 중':!appliedReady?'수학개념학습 완료 후 시작할 수 있어요':appliedCompleted?'완료 · 다시 학습하기':`${activeUnit.appliedConcepts.estimatedMinutes||'25~30'}분 · 문장제로 실전 연습하기`;
   if(appliedCard){appliedCard.classList.toggle('math-completed',appliedCompleted);appliedCard.classList.toggle('teacher-locked-content',!appliedReady||midnightLocked||appliedTeacherLocked);appliedCard.setAttribute('aria-disabled',appliedReady&&!midnightLocked&&!appliedTeacherLocked?'false':'true');appliedCard.dataset.unitId=activeUnitId||'';}
-  const previousIds=getMathUnitIds_(student,content).filter(id=>id!==activeUnitId&&id!=='coordinate-geometry-advanced-application'&&content.units?.[id]);
+  const previousIds=getMathUnitIds_(student,content).filter(id=>id!==activeUnitId&&content.units?.[id]);
   const wrap=document.getElementById('math-previous-learning'),list=document.getElementById('math-previous-units');
   if(!wrap||!list)return;
   wrap.style.display=previousIds.length?'block':'none';
@@ -5019,7 +5015,13 @@ async function openMathConceptReviewLearning(unitId=''){
     const alreadyCompleted=progress?.conceptReviewLearning?.completed===true,basicCompleted=!Array.isArray(unit?.basicConceptReview)||!unit.basicConceptReview.length||progress?.basicConceptReview?.completed===true,priorLocked=unit?getMathSequentialLock_(playerName,unitId,content).locked:true;
     if(!unit?.conceptReviewLearning||progress?.studentKey!==playerName||progress?.unitId!==unitId||(!alreadyCompleted&&(progress.completed!==true||!basicCompleted||priorLocked))){showToast2('이전 수학 필수 학습을 먼저 완료해 주세요.');return;}
     mathConceptReviewUnit=unit;mathConceptReviewItems=unit.conceptReviewLearning.questions||[];mathConceptReviewState={...defaultMathConceptReviewState_(),...(progress.conceptReviewLearning||{}),results:{...(progress.conceptReviewLearning?.results||{})}};
-    if(mathConceptReviewState.completed&&!mathConceptReviewState.relearning){mathConceptReviewState.phase='completed';}
+    if(mathConceptReviewState.completed&&!mathConceptReviewState.relearning){
+      // completed:true라도 콘텐츠 교체/추가로 아직 안 푼 문항이 남아있으면 "완료했어요" 화면 대신 그 문항부터 이어간다 —
+      // "미완료 학습"에 새 학습으로 떠서 들어왔는데 완료 화면부터 보이는 오탐을 막기 위함.
+      const firstUnansweredIdx=mathConceptReviewItems.findIndex(item=>!mathConceptReviewState.results[item.question.id]);
+      if(firstUnansweredIdx>=0){mathConceptReviewState.phase='questions';mathConceptReviewState.questionIndex=firstUnansweredIdx;}
+      else{mathConceptReviewState.phase='completed';}
+    }
     mathConceptReviewAnswer='';htShowOnlyScreen('math-concept-screen');renderMathConceptReviewLearning_();
   }finally{
     if(__card)__card.classList.remove('tap-pending');
@@ -5090,7 +5092,12 @@ async function openMathAppliedConceptLearning(unitId=''){
     const baseCompleted=progress?.completed===true,priorLocked=unit?getMathSequentialLock_(playerName,unitId,content).locked:true,alreadyStarted=progress?.appliedConcepts?.completed===true;
     if(!unit?.appliedConcepts||progress?.studentKey!==playerName||progress?.unitId!==unitId||(!alreadyStarted&&(!baseCompleted||priorLocked))){showToast2('이전 수학 필수 학습을 먼저 완료해 주세요.');return;}
     mathAppliedConceptUnit=unit;mathAppliedConceptItems=unit.appliedConcepts.questions||[];mathAppliedConceptState={...defaultMathAppliedConceptState_(),...(progress.appliedConcepts||{}),results:{...(progress.appliedConcepts?.results||{})}};
-    if(mathAppliedConceptState.completed&&!mathAppliedConceptState.relearning){mathAppliedConceptState.phase='completed';}
+    if(mathAppliedConceptState.completed&&!mathAppliedConceptState.relearning){
+      // completed:true라도 콘텐츠 교체/추가로 아직 안 푼 문항이 남아있으면 "완료했어요" 화면 대신 그 문항부터 이어간다.
+      const firstUnansweredIdx=mathAppliedConceptItems.findIndex(item=>!mathAppliedConceptState.results[item.question.id]);
+      if(firstUnansweredIdx>=0){mathAppliedConceptState.phase='questions';mathAppliedConceptState.questionIndex=firstUnansweredIdx;}
+      else{mathAppliedConceptState.phase='completed';}
+    }
     mathAppliedConceptAnswer='';htShowOnlyScreen('math-concept-screen');renderMathAppliedConceptLearning_();
   }finally{
     if(__card)__card.classList.remove('tap-pending');
@@ -5163,8 +5170,10 @@ async function openMathBasicConceptReview(unitId){
 }
 function renderMathBasicConceptReview_(){
   const root=document.getElementById('math-concept-root'),step=document.getElementById('math-step-label');if(!root||!mathBasicReviewUnit)return;
-  if(mathBasicReviewState.completed&&!mathBasicReviewState.relearning){if(step)step.textContent='기본개념 확인 완료';root.innerHTML=`<section class="math-card"><div class="math-kicker">${mathEscape(mathBasicReviewUnit.title)} · 기본개념 확인</div><h2>기본개념 확인을 완료했어요!</h2><p>기존 완료 기록과 진행률은 그대로 유지돼요.</p><div class="math-actions"><button type="button" class="math-primary" onclick="restartMathBasicConceptReview()">다시 학습하기</button><button type="button" class="math-secondary" onclick="closeMathConceptLearning()">학습 홈으로</button></div></section>`;return;}
   const passed=mathBasicReviewItems.filter(item=>mathBasicReviewState.results[item.conceptId]?.passed).length,current=getMathBasicReviewCurrent_();
+  // completed:true라도 콘텐츠 교체/추가로 아직 안 푼 개념(current)이 남아있으면 "완료했어요" 화면 대신 곧장 그 문제로 이어간다 —
+  // "미완료 학습"에 새 학습으로 떠서 들어왔는데 완료 화면부터 보이는 오탐을 막기 위함.
+  if(mathBasicReviewState.completed&&!mathBasicReviewState.relearning&&!current){if(step)step.textContent='기본개념 확인 완료';root.innerHTML=`<section class="math-card"><div class="math-kicker">${mathEscape(mathBasicReviewUnit.title)} · 기본개념 확인</div><h2>기본개념 확인을 완료했어요!</h2><p>기존 완료 기록과 진행률은 그대로 유지돼요.</p><div class="math-actions"><button type="button" class="math-primary" onclick="restartMathBasicConceptReview()">다시 학습하기</button><button type="button" class="math-secondary" onclick="closeMathConceptLearning()">학습 홈으로</button></div></section>`;return;}
   if(!current){if(step)step.textContent='기본개념 확인 완료';root.innerHTML=`<section class="math-card"><div class="math-kicker">${mathEscape(mathBasicReviewUnit.title)}</div><h2>기본개념을 모두 기억하고 있어요!</h2><div class="math-actions"><button type="button" class="math-primary" onclick="closeMathConceptLearning()">학습 홈으로</button></div></section>`;renderIncompleteUnitsSection();return;}
   if(step)step.textContent=`기본개념 확인 ${passed+1} / ${mathBasicReviewItems.length}`;const result=mathBasicReviewState.results[current.conceptId]||{};
   if(mathBasicReviewShowingConcept){const concept=(mathBasicReviewUnit.coreConcepts||[]).find(item=>item.id===current.conceptId),lesson=concept?.lesson||{};
@@ -13600,7 +13609,7 @@ function loadMathConceptContent(){
   if(mathContentLoadPromise)return mathContentLoadPromise;
   mathContentLoadPromise=new Promise((resolve,reject)=>{
     const script=document.createElement('script');
-    script.src='math-content.js?v=20260903-math-15';
+    script.src='math-content.js?v=20260903-math-16';
     script.onload=()=>{const content=window.MATH_CONTENT||window.MATH_CONCEPT_CONTENT;content?resolve(content):reject(new Error('수학 콘텐츠 형식 오류'));};
     script.onerror=()=>reject(new Error('수학 콘텐츠 네트워크 오류'));
     document.head.appendChild(script);

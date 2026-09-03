@@ -1,10 +1,10 @@
-const CACHE_NAME = 'samguk-culture-quiz-v71-geo-v3-content';
+const CACHE_NAME = 'samguk-culture-quiz-v74-math-review-completed-fix';
 const ASSETS = [
   './index.html',
-  './app.js?v=20260903-full-update-2',
-  './math-flow-v2.js?v=20260901-flow-11',
+  './app.js?v=20260903-full-update-4',
+  './math-flow-v2.js?v=20260903-flow-12',
   './learning-content.js?v=20260825-content-19',
-  './math-content.js?v=20260903-math-15',
+  './math-content.js?v=20260903-math-16',
   './manifest.json',
   './icon-192.png',
   './icon-512.png'
