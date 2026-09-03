@@ -55,7 +55,8 @@
       "Bash(nohup python3 -m http.server 8794 --bind 127.0.0.1)",
       "Bash(curl -sI http://127.0.0.1:8794/index.html)",
       "Bash(pkill -f \"http.server 8794\")",
-      "Bash(rm -rf /tmp/pw-check3 /tmp/watermark-fullwidth-login.png /tmp/watermark-fullwidth-otherscreen.png /tmp/study-app-server4.log)"
+      "Bash(rm -rf /tmp/pw-check3 /tmp/watermark-fullwidth-login.png /tmp/watermark-fullwidth-otherscreen.png /tmp/study-app-server4.log)",
+      "Bash(npx vercel *)"
     ]
   }
 }
