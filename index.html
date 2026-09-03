@@ -1798,6 +1798,9 @@ body:has(#student-select-view[style*="display: none"]){
 }
 
 /* 수학개념학습 — 기존 카드/버튼 토큰을 그대로 사용하는 모바일 우선 단일 화면 */
+.math-learning-set-toggle{display:grid;grid-template-columns:1fr 1fr;gap:4px;padding:4px;margin:0 0 10px;background:var(--neutral-surface);border:1px solid var(--neutral-border);border-radius:12px}
+.math-learning-set-toggle button{min-height:40px;border:0;border-radius:9px;background:transparent;color:var(--neutral-text);font-weight:800;cursor:pointer}
+.math-learning-set-toggle button.active{background:#fff;color:var(--primary);box-shadow:var(--shadow-sm)}
 #math-concept-screen{position:relative;z-index:1;display:none;width:100%;min-width:0;max-width:720px;margin:0 auto;text-align:left;overflow:visible;pointer-events:auto}
 body:has(#math-concept-screen[style*="display: block"]){align-items:flex-start}
 .math-shell{width:100%;min-width:0;min-height:100%;padding-bottom:max(88px,calc(40px + env(safe-area-inset-bottom)))}
@@ -3649,8 +3652,9 @@ h1,h2,h3,.title-label{
 
       <div class="subject-section-body">
         <div class="section-label">📘 오늘의 수학 개념학습</div>
+        <div id="coordinate-learning-set-toggle" class="math-learning-set-toggle" role="group" aria-label="도형의 방정식 학습 선택" style="display:none"><button type="button" class="active" data-unit-id="coordinate-geometry" onclick="selectCoordinateLearningSet_('coordinate-geometry')">기존 학습</button><button type="button" data-unit-id="coordinate-geometry-advanced-application" onclick="selectCoordinateLearningSet_('coordinate-geometry-advanced-application')">심화 응용</button></div>
         <div class="unit-grid">
-          <div class="unit-card" id="math-unit-card" onclick="openMathConceptLearning()">
+          <div class="unit-card" id="math-unit-card" onclick="openSelectedMathConceptLearning_()">
             <div class="unit-icon">📘</div>
             <div class="unit-info">
               <div class="unit-title" id="math-active-unit-title">수학개념학습</div>
