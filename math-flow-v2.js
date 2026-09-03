@@ -212,6 +212,13 @@
     console.info('[MathFlow v2] render',{phase:mathState.phase,index:mathState.index,questionId:currentQuestion()?.id||null,revision:mathState.syncRevision});
   }
   function setStep(text){const el=document.getElementById('math-step-label');if(el)el.textContent=text;}
+  // 완료 여부를 아직 전혀 모르는 상태(로그인 시 복원 캐시도, 이 기기의 로컬 기록도 없음)에서
+  // 로딩 화면으로 사용 — 일반 학습 화면을 먼저 보여줬다가 완료 화면으로 바뀌는 깜빡임을 막는다.
+  function renderMathLoadingScreen_(){
+    if(!root)return;
+    setStep('학습 상태 확인 중…');
+    root.innerHTML='<section class="math-card"><div class="math-kicker">잠시만요</div><h2>학습 상태 확인 중…</h2></section>';
+  }
 
   function submit(){if(mathState.phase==='final'&&typeof window.blockMathLearningAccess_==='function'&&window.blockMathLearningAccess_(playerName,unit?.id||'','unitQuiz'))return;const q=currentQuestion();if(!q||mathState.selectedAnswer===null)return;const a=attempt(q,mathState.phase==='prerequisite'?'prerequisite':mathState.phase==='review'?'prerequisite-review':mathState.phase==='required-check'?'required-prerequisite':mathState.phase==='core-check'?'concept-check':'final');recordWrongAnswer(q,a);
     if(mathState.phase==='prerequisite'){const item=unit.prerequisites[mathState.index];mathState.prerequisite.results[item.id]={status:a.correct?'understood':'needs-review',correct:a.correct,attempts:[...(mathState.prerequisite.results[item.id]?.attempts||[]),a],updatedAt:a.attemptedAt};mathState.selectedAnswer=null;if(mathState.index<unit.prerequisites.length-1)mathState.index++;else{mathState.prerequisite.completed=true;mathState.reviewQueue=unit.prerequisites.filter(item=>mathState.prerequisite.results[item.id]?.status==='needs-review'&&!mathState.prerequisite.results[item.id]?.reviewCompleted).map(item=>item.id);mathState.phase='prerequisite-result';mathState.index=0;}}
@@ -240,9 +247,37 @@
       }else{mathState.phase='core';mathState.index=0;}
     }mathState.selectedAnswer=null;persist();renderMathScreen();}else if(action==='start-extension'){startExtensionLearning();}else if(action==='start-required-retry'){mathState.phase='required-check';mathState.selectedAnswer=null;persist();renderMathScreen();}else if(action==='open-core-check'){const id=unit.coreConcepts[mathState.index].id;if(!mathState.core.visitedConceptIds.includes(id))mathState.core.visitedConceptIds.push(id);mathState.phase='core-check';mathState.selectedAnswer=null;persist();renderMathScreen();}else if(action==='restart'){restartCompletedLearning();}else if(action==='complete'){const completedAt=new Date().toISOString(),firstCompletion=mathState.completed!==true;if(mathState.relearning){mathState.relearningHistory.push(completionSnapshot(mathState,completedAt));mathState.relearning=false;}if(firstCompletion)mathState.basicConceptReviewPolicyVersion='next-day-v1';mathState.completed=true;mathState.completedAt=mathState.completedAt||completedAt;persist();renderMathScreen();}}
 
-  async function loadServer(openMutation,sequence){try{const response=await fetch(API_URL+'?action=getMathConceptProgress&name='+encodeURIComponent(student.name)+'&unitId='+encodeURIComponent(unit.id),{cache:'no-store'}),payload=await response.json();if(sequence!==loadSequence||!payload?.ok)return;const server=payload.data,serverRevision=Number(server?.syncRevision)||0;if(sessionMutation!==openMutation){mathState.lastServerRevision=Math.max(mathState.lastServerRevision,serverRevision);if(mathState.syncRevision<=serverRevision){mathState.syncRevision=serverRevision+1;mathState.pendingSync=true;queueSave();}return;}const local=mathState,serverState=normalizeProgress(server);const serverIsV2=server?.unitId===unit.id&&Number(server?.contentVersion||1)===Number(unit.contentVersion);if(serverIsV2&&(serverState.syncRevision>local.syncRevision||(serverState.syncRevision===local.syncRevision&&String(serverState.updatedAt||'')>String(local.updatedAt||''))))mathState=serverState;else{mathState.lastServerRevision=Math.max(mathState.lastServerRevision,serverRevision);mathState.syncRevision=Math.max(mathState.syncRevision,serverRevision);}if(!isLearningWriteBlocked())localStorage.setItem(storageKey(),JSON.stringify(mathState));renderMathScreen();}catch(error){console.warn('수학 v2 서버 조회 실패:',error);}}
+  async function loadServer(openMutation,sequence){try{const response=await fetch(API_URL+'?action=getMathConceptProgress&name='+encodeURIComponent(student.name)+'&unitId='+encodeURIComponent(unit.id),{cache:'no-store'}),payload=await response.json();if(sequence!==loadSequence)return;
+      if(!mathState){
+        // 캐시/로컬 모두 없어 "학습 상태 확인 중…"으로 대기하던 최초 진입 — 서버 응답이 유일한 근거이므로 그대로 채택한다.
+        // (실패 시에도 로딩 화면에 계속 머무르지 않도록 initialState로 대체해 일반 학습을 시작할 수 있게 한다.)
+        const server=payload?.ok?payload.data:null,serverState=normalizeProgress(server);
+        if(serverState.phase==='final'&&typeof window.blockMathLearningAccess_==='function'&&window.blockMathLearningAccess_(playerName,unit.id,'unitQuiz')){close();return;}
+        mathState=serverState;
+        if(!isLearningWriteBlocked())localStorage.setItem(storageKey(),JSON.stringify(mathState));
+        renderMathScreen();
+        return;
+      }
+      if(!payload?.ok)return;
+      const server=payload.data,serverRevision=Number(server?.syncRevision)||0;if(sessionMutation!==openMutation){mathState.lastServerRevision=Math.max(mathState.lastServerRevision,serverRevision);if(mathState.syncRevision<=serverRevision){mathState.syncRevision=serverRevision+1;mathState.pendingSync=true;queueSave();}return;}const local=mathState,serverState=normalizeProgress(server);const serverIsV2=server?.unitId===unit.id&&Number(server?.contentVersion||1)===Number(unit.contentVersion);if(serverIsV2&&(serverState.syncRevision>local.syncRevision||(serverState.syncRevision===local.syncRevision&&String(serverState.updatedAt||'')>String(local.updatedAt||''))))mathState=serverState;else{mathState.lastServerRevision=Math.max(mathState.lastServerRevision,serverRevision);mathState.syncRevision=Math.max(mathState.syncRevision,serverRevision);}if(!isLearningWriteBlocked())localStorage.setItem(storageKey(),JSON.stringify(mathState));renderMathScreen();}catch(error){console.warn('수학 v2 서버 조회 실패:',error);if(!mathState){mathState=normalizeProgress(null);renderMathScreen();}}}
 
-  async function open(requestedUnitId){if(typeof window.blockStudentLearningEntry_==='function'&&window.blockStudentLearningEntry_())return;student=STUDENTS.find(item=>item.name===playerName);if(!student)return;const content=await loadMathConceptContent();const gradeConfig=content.grades?.[student.grade];const unitId=requestedUnitId||gradeConfig?.activeUnit||student.mathUnitId;if(typeof window.blockMathLearningAccess_==='function'&&window.blockMathLearningAccess_(playerName,unitId,'concept'))return;unit=content.units[unitId];if(!unit||unit.grade!==student.grade){showToast2('⏳ 이 학년 수학개념학습은 준비 중이에요.');return;}screen=document.getElementById('math-concept-screen');root=document.getElementById('math-concept-root');if(!bound){screen.addEventListener('click',handleClick);bound=true;}mathState=normalizeProgress(readLocalWithMigration());if(mathState.phase==='final'&&typeof window.blockMathLearningAccess_==='function'&&window.blockMathLearningAccess_(playerName,unitId,'unitQuiz'))return;sessionMutation=0;const sequence=++loadSequence;htShowOnlyScreen('math-concept-screen');renderMathScreen();loadServer(sessionMutation,sequence);}
+  async function open(requestedUnitId){if(typeof window.blockStudentLearningEntry_==='function'&&window.blockStudentLearningEntry_())return;student=STUDENTS.find(item=>item.name===playerName);if(!student)return;const content=await loadMathConceptContent();const gradeConfig=content.grades?.[student.grade];const unitId=requestedUnitId||gradeConfig?.activeUnit||student.mathUnitId;if(typeof window.blockMathLearningAccess_==='function'&&window.blockMathLearningAccess_(playerName,unitId,'concept'))return;unit=content.units[unitId];if(!unit||unit.grade!==student.grade){showToast2('⏳ 이 학년 수학개념학습은 준비 중이에요.');return;}screen=document.getElementById('math-concept-screen');root=document.getElementById('math-concept-root');if(!bound){screen.addEventListener('click',handleClick);bound=true;}
+    // 로그인 시 이미 복원된 서버 확정 캐시(mathConceptProgressOverviewCache, app.js)와 이 기기의 로컬 기록 중 더 최신인
+    // 쪽을 즉시 사용한다 — 완료 여부가 서버 재조회를 기다리는 동안 늦게 반영되어 화면이 깜빡이는 문제를 막기 위함.
+    // 둘 다 없는(=이 기기에서 이 단원을 연 적이 아예 없는) 최초 진입에서만 "학습 상태 확인 중…"을 짧게 보여준다.
+    const cachedProgress=(typeof mathConceptProgressOverviewCache==='object'&&mathConceptProgressOverviewCache)?mathConceptProgressOverviewCache[mathConceptCacheKey_(student.name,unitId)]:null;
+    const known=(typeof pickNewerMathConceptProgress_==='function')?pickNewerMathConceptProgress_(readLocalWithMigration(),cachedProgress):readLocalWithMigration();
+    sessionMutation=0;const sequence=++loadSequence;htShowOnlyScreen('math-concept-screen');
+    if(known){
+      mathState=normalizeProgress(known);
+      if(mathState.phase==='final'&&typeof window.blockMathLearningAccess_==='function'&&window.blockMathLearningAccess_(playerName,unitId,'unitQuiz'))return;
+      renderMathScreen();
+    }else{
+      mathState=null;
+      renderMathLoadingScreen_();
+    }
+    loadServer(sessionMutation,sequence);
+  }
   function close(){loadSequence++;mathState=null;unit=null;student=null;goHome();}
   document.addEventListener('input',event=>{const input=event.target.closest?.('#math-concept-root [data-math-input]');if(!input||!mathState)return;if(input.dataset.mathInput==='answer')mathState.selectedAnswer=input.value.trim()?input.value:null;else{const wrap=input.closest('.math-fraction-input'),num=wrap.querySelector('[data-math-input=numerator]').value.trim(),den=wrap.querySelector('[data-math-input=denominator]').value.trim();mathState.selectedAnswer=num&&den?num+'/'+den:null;}const button=root?.querySelector('[data-math-action=submit]');if(button){button.disabled=mathState.selectedAnswer===null;button.setAttribute('aria-disabled',button.disabled?'true':'false');}});
   window.MathFlowV2={open,close,startExtensionLearning,_test:{initialState:()=>initialState(),normalizeProgress,render:renderMathScreen,getState:()=>clone(mathState),setState:value=>{mathState=normalizeProgress(value);},submit,handleClick,recordWrongAnswer,restartCompletedLearning,newItemIds,totalNewItemsCount,startExtensionLearning,correct}};
